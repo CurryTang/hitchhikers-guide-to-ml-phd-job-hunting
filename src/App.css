@@ -1313,6 +1313,190 @@
   background: #e4f6fb;
 }
 
+/* ── Math / binary exponentiation visual ─────────── */
+.pow-visual {
+  margin: 1.35rem auto;
+  max-width: min(100%, 1120px);
+  border: 1px solid rgba(26, 67, 84, 0.2);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.84), rgba(236, 247, 248, 0.76)),
+    repeating-linear-gradient(90deg, rgba(24, 49, 63, 0.045) 0 1px, transparent 1px 42px);
+  box-shadow: 0 12px 28px rgba(31, 53, 66, 0.12);
+  overflow: hidden;
+}
+
+.pow-header {
+  border-bottom: 1px solid rgba(24, 75, 92, 0.14);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.pow-header h2 {
+  margin: 0.2rem 0 0.25rem;
+  color: #102735;
+}
+
+.pow-header p:not(.eyebrow) {
+  margin: 0;
+  color: #3f5966;
+}
+
+.pow-counter {
+  min-width: 4.5rem;
+  border: 1px solid rgba(24, 75, 92, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.74);
+  color: #102735;
+  display: grid;
+  place-items: center;
+  padding: 0.7rem;
+  font: 700 1.5rem "Space Grotesk", "Avenir Next", sans-serif;
+}
+
+.pow-counter span {
+  color: #657b86;
+  font: 700 0.72rem "IBM Plex Mono", "Courier New", monospace;
+}
+
+.pow-board {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+}
+
+.pow-bits {
+  border: 1px solid rgba(24, 75, 92, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.76);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(4.5rem, 1fr));
+  gap: 0.55rem;
+  padding: 0.8rem;
+}
+
+.pow-bits span {
+  min-height: 82px;
+  border: 1px solid rgba(39, 64, 77, 0.16);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #102735;
+  display: grid;
+  place-items: center;
+  gap: 0.15rem;
+  font: 800 1.6rem "IBM Plex Mono", "Courier New", monospace;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.pow-bits small {
+  color: #607782;
+  font: 700 0.7rem "IBM Plex Mono", "Courier New", monospace;
+}
+
+.pow-bits .current {
+  border-color: #0d6d8f;
+  background: #dff5fb;
+  box-shadow: 0 0 0 3px rgba(13, 109, 143, 0.12);
+  transform: translateY(-1px);
+}
+
+.pow-bits .consumed {
+  border-color: rgba(37, 118, 79, 0.34);
+  background: #edf8f1;
+}
+
+.pow-state-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.pow-state-grid div {
+  min-height: 92px;
+  border: 1px solid rgba(39, 64, 77, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+  display: grid;
+  align-content: center;
+  gap: 0.22rem;
+  padding: 0.75rem;
+}
+
+.pow-state-grid span {
+  color: #58707b;
+  font: 700 0.68rem "IBM Plex Mono", "Courier New", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.pow-state-grid strong {
+  color: #102735;
+  font: 700 1.45rem "Space Grotesk", "Avenir Next", sans-serif;
+}
+
+.pow-explain {
+  border-left: 4px solid #2f7b94;
+  border-radius: 8px;
+  background: rgba(224, 243, 248, 0.72);
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.8rem 0.95rem;
+}
+
+.pow-explain strong {
+  color: #123344;
+}
+
+.pow-explain p {
+  margin: 0;
+  color: #284858;
+}
+
+.pow-timeline {
+  margin: 0;
+  border-top: 1px solid rgba(24, 75, 92, 0.14);
+  padding: 0.8rem 1rem 1rem;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.55rem;
+  list-style: none;
+}
+
+.pow-timeline button {
+  width: 100%;
+  border: 1px solid rgba(24, 75, 92, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #203c4a;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.65rem;
+  text-align: left;
+  font-weight: 700;
+}
+
+.pow-timeline span {
+  width: 1.45rem;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: #18313f;
+  color: #ffffff;
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  font: 700 0.72rem "IBM Plex Mono", "Courier New", monospace;
+}
+
+.pow-timeline .active button {
+  border-color: #0d6d8f;
+  background: #e4f6fb;
+}
+
 /* ── Bellman-Ford visual walkthrough ─────────────── */
 .bf-visual {
   margin: 1.35rem auto;
@@ -2692,6 +2876,19 @@
   .language-toggle {
     width: fit-content;
   }
+
+  .pow-header {
+    display: grid;
+  }
+
+  .pow-bits,
+  .pow-state-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pow-timeline {
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  }
 }
 
 @media (max-width: 520px) {
@@ -2706,5 +2903,10 @@
 
   .home-hero-copy p:not(.eyebrow) {
     max-width: min(100%, 22rem);
+  }
+
+  .pow-bits,
+  .pow-state-grid {
+    grid-template-columns: 1fr;
   }
 }

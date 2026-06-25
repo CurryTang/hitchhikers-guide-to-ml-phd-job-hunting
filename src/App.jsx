@@ -208,6 +208,12 @@ const leetcodeNoteDefinitions = [
     null,
     { directory: 'Leetcode', category: 'Intervals', difficulty: 'Medium' },
   ),
+  createTutorialDefinition(
+    'Core Skills 25 · Math: Fast Power',
+    'CoreSkills25 Math Binary Exponentiation.md',
+    null,
+    { directory: 'Leetcode', category: 'Math', difficulty: 'Medium' },
+  ),
 ];
 
 const leetcodeNotes = leetcodeNoteDefinitions.map((definition) => ({
@@ -1372,6 +1378,129 @@ function IntervalPatternVisual({ kind }) {
   );
 }
 
+const POW_STEPS = [
+  {
+    title: 'Init',
+    power: 10,
+    base: 2,
+    res: 1,
+    bit: 0,
+    action: 'power = 10, binary = 1010. Lowest bit is 0, so this round does not contribute to the answer yet.',
+    next: 'Square base to 4, shift power right to 5.',
+  },
+  {
+    title: 'Read bit 1',
+    power: 5,
+    base: 4,
+    res: 1,
+    bit: 1,
+    action: 'power is odd. The current base represents x^2, so multiply it into res.',
+    next: 'res = 1 * 4 = 4. Square base to 16, shift power right to 2.',
+  },
+  {
+    title: 'Read bit 0',
+    power: 2,
+    base: 16,
+    res: 4,
+    bit: 0,
+    action: 'Lowest bit is 0. x^4 is not needed for n = 10, so res stays unchanged.',
+    next: 'Square base to 256, shift power right to 1.',
+  },
+  {
+    title: 'Read bit 1',
+    power: 1,
+    base: 256,
+    res: 4,
+    bit: 1,
+    action: 'power is odd again. The current base represents x^8, and n = 10 includes this bit.',
+    next: 'res = 4 * 256 = 1024. Shift power to 0, stop.',
+  },
+  {
+    title: 'Done',
+    power: 0,
+    base: 65536,
+    res: 1024,
+    bit: null,
+    action: 'All bits have been consumed from right to left: 10 = 8 + 2.',
+    next: 'Return 1024 for pow(2, 10).',
+  },
+];
+
+function BinaryPowVisual() {
+  const [activeStep, setActiveStep] = useState(0);
+  const step = POW_STEPS[activeStep];
+  const binaryBits = ['1', '0', '1', '0'];
+  const consumedFromRight = Math.min(activeStep, binaryBits.length);
+
+  return (
+    <section className="pow-visual" aria-label="Binary exponentiation walkthrough">
+      <header className="pow-header">
+        <div>
+          <p className="eyebrow">Math visual</p>
+          <h2>Binary Exponentiation: pow(2, 10)</h2>
+          <p>每一轮只看 `power` 的最低位：bit 为 1 才把当前 `base` 乘进 `res`。</p>
+        </div>
+        <div className="pow-counter">{activeStep + 1}<span>/ {POW_STEPS.length}</span></div>
+      </header>
+
+      <div className="pow-board">
+        <div className="pow-bits" aria-label="Binary bits of exponent 10">
+          {binaryBits.map((bit, index) => {
+            const fromRight = binaryBits.length - 1 - index;
+            const isCurrent = fromRight === consumedFromRight && activeStep < binaryBits.length;
+            const isConsumed = fromRight < consumedFromRight;
+            return (
+              <span
+                className={`${isCurrent ? 'current' : ''} ${isConsumed ? 'consumed' : ''}`}
+                key={`${bit}-${index}`}
+              >
+                {bit}
+                <small>{[8, 4, 2, 1][index]}</small>
+              </span>
+            );
+          })}
+        </div>
+
+        <div className="pow-state-grid">
+          <div>
+            <span>x / base</span>
+            <strong>{step.base}</strong>
+          </div>
+          <div>
+            <span>power</span>
+            <strong>{step.power}</strong>
+          </div>
+          <div>
+            <span>power & 1</span>
+            <strong>{step.bit === null ? '-' : step.bit}</strong>
+          </div>
+          <div>
+            <span>res</span>
+            <strong>{step.res}</strong>
+          </div>
+        </div>
+
+        <div className="pow-explain">
+          <strong>{step.title}</strong>
+          <p>{step.action}</p>
+          <p>{step.next}</p>
+        </div>
+      </div>
+
+      <ol className="pow-timeline">
+        {POW_STEPS.map((candidate, index) => (
+          <li className={index === activeStep ? 'active' : ''} key={candidate.title}>
+            <button type="button" onClick={() => setActiveStep(index)}>
+              <span>{index + 1}</span>
+              {candidate.title}
+            </button>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 function IntervalBar({ domain, interval, isActive = false, isMuted = false }) {
   const left = intervalPercent(interval.start, domain);
   const right = intervalPercent(interval.end, domain);
@@ -1411,7 +1540,7 @@ function buildIntervalTicks([min, max]) {
 function MarkdownPre({ children, ...props }) {
   const child = Array.isArray(children) ? children[0] : children;
   const className = child?.props?.className ?? '';
-  const match = /language-(quiz|mcq|topo-demo|bellman-demo|segment-tree-demo|interval-merge-demo|interval-insert-demo|interval-rooms-demo|interval-query-demo)/.exec(className);
+  const match = /language-(quiz|mcq|topo-demo|bellman-demo|segment-tree-demo|interval-merge-demo|interval-insert-demo|interval-rooms-demo|interval-query-demo|pow-demo)/.exec(className);
 
   if (match?.[1] === 'topo-demo') {
     return <ForeignDictionaryTopoVisual />;
@@ -1427,6 +1556,10 @@ function MarkdownPre({ children, ...props }) {
 
   if (match?.[1]?.startsWith('interval-')) {
     return <IntervalPatternVisual kind={match[1]} />;
+  }
+
+  if (match?.[1] === 'pow-demo') {
+    return <BinaryPowVisual />;
   }
 
   if (match) {
@@ -1500,7 +1633,7 @@ function tokenizeCode(code, language) {
     ? 'False|None|True|and|as|break|class|continue|def|elif|else|for|from|if|import|in|is|not|or|return|while|with'
     : 'const|let|var|function|return|if|else|for|while|import|from|export|class|new|true|false|null|undefined|await|async';
   const builtinPattern = language === 'python' || language === 'py'
-    ? 'Counter|List|bool|dict|enumerate|heapify|heappop|int|len|list|max|min|range|set|sorted|sum'
+    ? 'Counter|List|abs|bool|dict|enumerate|float|heapify|heappop|int|len|list|max|min|range|set|sorted|sum'
     : 'Array|Boolean|Map|Math|Number|Object|Promise|Set|String|console';
   const tokenPattern = new RegExp(
     `(#.*|//.*|"""[\\s\\S]*?"""|'''[\\s\\S]*?'''|"(?:\\\\.|[^"\\\\])*"|'(?:\\\\.|[^'\\\\])*'|\\b(?:${keywordPattern})\\b|\\b(?:${builtinPattern})\\b|\\b\\d+(?:\\.\\d+)?\\b)`,
