@@ -205,6 +205,12 @@ const leetcodeNoteDefinitions = [
     null,
     { directory: 'Leetcode', category: 'Math', difficulty: 'Medium' },
   ),
+  createTutorialDefinition(
+    'Core Skills 26 · Bit Manipulation: XOR',
+    'CoreSkills26 Bit Manipulation XOR.md',
+    null,
+    { directory: 'Leetcode', category: 'Math', difficulty: 'Easy' },
+  ),
 ];
 
 const leetcodeNotes = leetcodeNoteDefinitions.map((definition) => ({
