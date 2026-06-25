@@ -1,6 +1,7 @@
 .site-shell {
   width: 100%;
   min-height: 100vh;
+  overflow-x: hidden;
   background:
     radial-gradient(circle at 12% 14%, rgba(255, 213, 141, 0.3), transparent 34%),
     radial-gradient(circle at 88% 18%, rgba(132, 206, 186, 0.3), transparent 32%),
@@ -2127,35 +2128,73 @@
 }
 
 @media (max-width: 900px) {
+  .site-shell {
+    max-width: 100vw;
+  }
+
   .top-nav {
+    width: 100%;
+    max-width: 100vw;
     height: auto;
     min-height: 72px;
     align-items: flex-start;
     flex-direction: column;
+    overflow: hidden;
+    padding-inline: 1rem;
     padding-block: 0.8rem;
   }
 
   .top-nav-links {
     width: 100%;
+    max-width: calc(100vw - 2rem);
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .top-nav-link {
-    flex: 1;
+    min-width: 0;
+    padding-inline: 0.45rem;
+    font-size: 0.76rem;
   }
 
   .home-page {
+    width: 100%;
+    max-width: 100vw;
     min-height: auto;
+    overflow: hidden;
     padding: 1rem;
   }
 
   .home-hero {
+    width: 100%;
+    max-width: calc(100vw - 2rem);
     min-height: auto;
     grid-template-columns: 1fr;
+    overflow: hidden;
     padding: 2rem 0 1rem;
+  }
+
+  .home-hero-copy {
+    min-width: 0;
+  }
+
+  .home-hero-copy h1 {
+    max-width: min(100%, 7em);
+    font-size: clamp(2rem, 9vw, 2.9rem);
+    line-height: 1.05;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+  }
+
+  .home-hero-copy p:not(.eyebrow) {
+    max-width: min(100%, 28rem);
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .home-hero-panel {
     grid-template-columns: 1fr;
+    width: 100%;
   }
 
   .home-stat {
@@ -2184,5 +2223,20 @@
 
   .language-toggle {
     width: fit-content;
+  }
+}
+
+@media (max-width: 520px) {
+  .top-nav-link {
+    font-size: 0.7rem;
+    padding-inline: 0.25rem;
+  }
+
+  .home-hero-copy h1 {
+    max-width: min(100%, 6.8em);
+  }
+
+  .home-hero-copy p:not(.eyebrow) {
+    max-width: min(100%, 22rem);
   }
 }
