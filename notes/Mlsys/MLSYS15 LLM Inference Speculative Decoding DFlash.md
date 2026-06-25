@@ -23,10 +23,12 @@ Medusa / EAGLE / DFlash 到底差在哪里？
 4. [[#四、加速来自哪里：一个可背的性能模型]]
 5. [[#五、从 Medusa 到 EAGLE-3：drafter 怎么变强]]
 6. [[#六、DFlash：Block Diffusion Speculative Decoding]]
-7. [[#七、SGLang / vLLM 里怎么开 DFlash]]
-8. [[#八、工程判断：什么时候开，什么时候别开]]
-9. [[#九、面试问答与常见坑]]
-10. [[#参考资料]]
+7. [[#七、Kernel 与系统调度层：推理不是一个 forward]]
+8. [[#八、Spec Decode 在 serving runtime 里怎么落地]]
+9. [[#九、SGLang / vLLM 里怎么开 DFlash]]
+10. [[#十、工程判断：什么时候开，什么时候别开]]
+11. [[#十一、面试问答与常见坑]]
+12. [[#参考资料]]
 
 ---
 
@@ -445,11 +447,339 @@ NVIDIA 2026 年 Blackwell 博客给出的公开结果显示，DFlash 在 gpt-oss
 
 ---
 
-## 七、SGLang / vLLM 里怎么开 DFlash
+## 七、Kernel 与系统调度层：推理不是一个 forward
+
+前面讲的是 speculative decoding 的算法。真正的 inference 系统里，一次 decode step 至少有两层调度：
+
+```text
+request scheduler:
+  哪些请求进入本轮 batch？
+  谁做 prefill，谁做 decode，谁被抢占？
+  KV cache slot 从哪里来？
+
+kernel scheduler:
+  这一轮 attention/GEMM/MoE kernel 怎么切 tile？
+  variable-length KV 怎么映射到 blocks/pages？
+  CUDAGraph 需要静态 shape，但请求长度是动态的，怎么兼容？
+```
+
+这就是为什么同一个 speculative algorithm，在 notebook 里能加速，放进 vLLM/SGLang 里却可能需要一堆 runtime 工作。
+
+### 7.1 Decode step 的真实数据流
+
+普通 decode 不是简单调用 `model(input_id)`。一个 serving runtime 通常做下面这些事：
+
+```python
+def decode_iteration(waiting, running, kv_allocator):
+    # 1. admission control: 选本轮能跑的请求
+    batch = scheduler.pick(
+        waiting=waiting,
+        running=running,
+        free_kv_pages=kv_allocator.free_pages(),
+        max_num_batched_tokens=MAX_TOKENS,
+        max_num_seqs=MAX_SEQS,
+    )
+
+    # 2. 为新增 token 分配 KV page
+    for req in batch:
+        kv_allocator.append_slot(req.request_id)
+
+    # 3. 构造 attention metadata
+    metadata = build_decode_metadata(batch)
+
+    # 4. launch kernels
+    logits = model.decode_one_token(
+        input_ids=batch.last_tokens,
+        positions=batch.positions,
+        kv_cache=kv_allocator.kv_cache,
+        metadata=metadata,
+    )
+
+    # 5. sample / stop / stream / release finished KV
+    next_tokens = sampler(logits, batch.sampling_params)
+    scheduler.commit(batch, next_tokens)
+```
+
+面试里要能指出：**scheduler 决定 batch shape，batch shape 决定 kernel 效率**。Speculative decoding 改变了 step 粒度：一次 target verify 可能推进多个 token，因此 scheduler 不能再假设“每个 running request 每轮只追加 1 个 KV slot”。
+
+### 7.2 Paged KV Cache：为什么 decode 需要内存管理器
+
+KV cache 大小近似：
+
+```text
+num_layers * 2(K,V) * num_tokens * num_kv_heads * head_dim * bytes
+```
+
+长上下文、多并发时，KV cache 比权重更容易成为服务瓶颈。PagedAttention / paged KV 的核心是把每条序列的 KV 切成固定大小的 page：
+
+```text
+request A logical tokens:
+  [0..15] [16..31] [32..47]
+
+physical KV pages:
+  page 7 -> A[0..15]
+  page 2 -> A[16..31]
+  page 9 -> A[32..47]
+```
+
+好处：
+
+- 变长序列不需要一整块连续显存
+- 完成的请求可以立刻释放 page
+- scheduler 可以根据 free pages 做 admission control
+
+代价：
+
+- attention kernel 需要通过 page table 间接寻址
+- page size 影响碎片和访存连续性
+- prefix cache / speculative accept / reject 都会改变 page 生命周期
+
+Speculative decoding 的额外问题是：draft token 先被提出来，但只有 accepted prefix 才能成为正式上下文。因此 runtime 常见策略是：
+
+```text
+verify 前：
+  draft token 可以放在临时 buffer 或 speculative slots
+
+verify 后：
+  accepted tokens commit 到正式 KV cache
+  rejected suffix 对应的临时 KV / metadata 丢弃
+```
+
+如果直接把所有 draft token 写进正式 KV，再回滚，会让 allocator、streaming、prefix cache 全部复杂化。
+
+### 7.3 CUDA-level：decode attention kernel 在做什么
+
+下面是高度简化的 CUDA 视角。真实实现会有 tensor core、warp-level reduction、vectorized load、FlashAttention-style online softmax，但 mental model 是：
+
+```cuda
+// one query token attends to paged KV blocks
+__global__ void paged_decode_attention(
+    half* q, half* k_cache, half* v_cache,
+    int* block_table, int* seq_lens,
+    half* out
+) {
+    int seq = blockIdx.x;       // request in batch
+    int head = blockIdx.y;      // attention head
+    int lane = threadIdx.x;
+
+    float m = -INFINITY;        // online softmax max
+    float l = 0.0f;             // online softmax normalizer
+    float acc[HEAD_DIM];        // output accumulator
+
+    for (int logical_block = 0; logical_block < num_blocks(seq); ++logical_block) {
+        int physical_block = block_table[seq, logical_block];
+
+        // load K/V tile from physical KV page
+        half* k_tile = k_cache + physical_block_offset(physical_block, head);
+        half* v_tile = v_cache + physical_block_offset(physical_block, head);
+
+        // q @ k, update online softmax, accumulate p * v
+        update_attention_tile(q, k_tile, v_tile, &m, &l, acc);
+    }
+
+    store_normalized(out, seq, head, acc, l);
+}
+```
+
+这里有三个 kernel 层面的难点：
+
+| 难点 | 为什么影响 latency |
+|---|---|
+| 变长序列 | 不同 request 的 `seq_len` 不同，block 数不同，SM 容易负载不均 |
+| page table 间接寻址 | KV 不连续，内存 coalescing 更难 |
+| 小 batch decode | 每个 token query 很少，算力不一定打满，HBM 访问更像瓶颈 |
+
+FlashInfer 这类 kernel library 的价值就在这里：它不是只给一个 attention kernel，而是给一套能适配不同 KV layout、不同 batch shape、不同 attention variant 的模板和 runtime 调度。
+
+### 7.4 FlashInfer 的 plan/run 模式
+
+FlashInfer 论文里一个很重要的系统点是：请求长度动态变化，但 CUDAGraph 喜欢静态 launch 配置。解决思路可以理解成两阶段：
+
+```text
+plan():
+  读取本轮 batch 的 seq_lens / page table / qo_indptr
+  生成 load-balanced 的调度 metadata
+  尽量让 SM 工作量均匀
+
+run():
+  所有层复用 plan metadata
+  launch attention kernel
+  与 CUDAGraph / JIT 模板兼容
+```
+
+这比“每层重新根据 shape 动态分配工作”更稳定：
+
+```python
+plan = flashinfer.plan(
+    qo_indptr=batch.qo_indptr,
+    paged_kv_indptr=batch.kv_indptr,
+    paged_kv_indices=batch.kv_indices,
+    num_heads=num_heads,
+    head_dim=head_dim,
+)
+
+for layer in layers:
+    hidden = layer.attn.run(hidden, kv_cache[layer], plan)
+    hidden = layer.mlp(hidden)
+```
+
+这类设计解释了一个常见现象：LLM inference 的优化不只是“写一个更快的 CUDA kernel”，而是 **kernel API、metadata format、scheduler、CUDAGraph replay** 一起设计。
+
+### 7.5 Prefill / Decode disaggregation
+
+Prefill 和 decode 的硬件行为不同：
+
+| 阶段 | Kernel 形态 | 系统目标 |
+|---|---|---|
+| Prefill | 大矩阵、大 sequence，compute-heavy | 尽快得到 first token，吞掉长 prompt |
+| Decode | 每步 1 或少量 token，memory-heavy | 稳定 ITL，持续高并发 |
+
+把 prefill 和 decode 混在同一批 GPU 上，会互相干扰：
+
+```text
+long prefill 占满 batch token budget
+  -> decode request 等待
+  -> p95/p99 ITL 变差
+```
+
+所以现代 serving 系统会做 chunked prefill、prefill/decode 分离、或者让不同 instance 专门处理不同 phase。Speculative decoding 加剧这个问题：target verify 有点像“短 prefill”，一次输入 `context + draft block`，会把 decode step 变得更 prefill-like。调度器必须决定：
+
+```text
+这一轮是让更多普通 decode 进来？
+还是给某些请求做 speculative verify？
+verify block 太长会不会拖慢别人的 ITL？
+```
+
+这就是 DFlash / EAGLE 在 serving 里真正难的地方：算法只说 acceptance length，系统还要看 batch interference。
+
+---
+
+## 八、Spec Decode 在 serving runtime 里怎么落地
+
+### 8.1 Runtime 状态机
+
+一个支持 speculative decoding 的 request 通常不是单一 `RUNNING` 状态，而更像：
+
+```text
+PREFILL
+  -> DRAFTING
+  -> VERIFYING
+  -> COMMIT_ACCEPTED
+  -> STREAM_OUTPUT
+  -> DRAFTING ...
+```
+
+如果写成伪代码：
+
+```python
+while not req.done:
+    if req.state == "DRAFTING":
+        req.draft_ids = drafter.propose(req.context, k=req.k)
+        req.state = "VERIFYING"
+
+    elif req.state == "VERIFYING":
+        q_logits = target.verify(req.context, req.draft_ids)
+        accepted, replacement = rejection_sample(req.draft_ids, q_logits)
+        req.pending_commit = accepted + maybe(replacement)
+        req.state = "COMMIT_ACCEPTED"
+
+    elif req.state == "COMMIT_ACCEPTED":
+        kv_cache.commit(req.id, req.pending_commit)
+        streamer.emit(req.pending_commit)
+        req.state = "DRAFTING"
+```
+
+这个状态机需要和 continuous batching 共存。也就是说，同一个 batch 里可能同时有：
+
+```text
+普通 decode requests
+DFlash draft requests
+target verify requests
+prefill requests
+刚完成、要释放 KV 的 requests
+```
+
+调度器的本质是把这些不同形态的工作塞进同一批 GPU，让吞吐、TTFT、ITL、显存都不爆。
+
+### 8.2 Verify kernel 为什么接近 prefill
+
+验证 `k` 个 draft token 时，target 不是逐个 token 跑，而是输入：
+
+```text
+[context, d1, d2, ..., dk]
+```
+
+对 draft suffix 的每个位置并行算 logits：
+
+```text
+logits for d1: target(context)
+logits for d2: target(context, d1)
+...
+logits for dk: target(context, d1, ..., d{k-1})
+```
+
+在 kernel 层面，这更像一个短序列 prefill：
+
+```text
+Q length = k + 1
+KV length = context_len + k
+attention mask = causal
+```
+
+所以它会消耗更多 `max_num_batched_tokens`，也会引入更多 activation/logit 临时 buffer。线上如果只看 tokens/s，很容易忽略 verify 对其他请求 ITL 的挤压。
+
+### 8.3 DFlash 特别需要 hidden-state plumbing
+
+DFlash 不只是“多一个 draft model”。它需要 target hidden features 作为条件：
+
+```text
+target model:
+  context -> hidden features
+
+DFlash drafter:
+  hidden features + masked block -> draft block
+```
+
+因此 serving runtime 要额外支持：
+
+| 需求 | 系统影响 |
+|---|---|
+| 暴露 target hidden states | target forward API 不能只返回 logits |
+| hidden feature cache | 避免重复计算，但要控制显存 |
+| drafter KV injection | draft model 的 KV cache 和 target feature 对齐 |
+| online speculator training | policy / target 变动时 drafter 也要跟上 |
+
+这解释了为什么 DFlash/EAGLE 的生产化通常依赖 vLLM/SGLang 这类 runtime，而不是在 Transformers loop 上加几行 Python。
+
+### 8.4 正确性边界：lossless 不等于实现简单
+
+Speculative decoding 的理论正确性依赖三个条件：
+
+```text
+1. draft token 的 proposal probability p 能被正确拿到
+2. target distribution q 是对同一上下文计算的
+3. reject 后从 residual distribution q' 采样
+```
+
+系统实现里常见破坏点：
+
+| 破坏点 | 后果 |
+|---|---|
+| tokenizer / chat template 不一致 | draft token 和 target token 对不上 |
+| target verify 的 context 少了某个 accepted token | q 不是同一条件分布 |
+| top-p/top-k mask 没同步 | residual distribution 错 |
+| FP8/INT8 quantized draft 没校准 logprob | acceptance ratio 偏 |
+| streaming 先发出未验证 token | 用户看到后来被 reject 的内容 |
+
+所以生产系统通常只 streaming 已经 commit 的 accepted tokens，而不是 draft tokens。
+
+---
+
+## 九、SGLang / vLLM 里怎么开 DFlash
 
 真实部署时你不会手写 `verify_prefix`。你会在 serving runtime 里打开对应 spec decode backend。
 
-### 7.1 SGLang 示例
+### 9.1 SGLang 示例
 
 以公开的 Qwen3-8B DFlash checkpoint 为例，SGLang 启动方式大致是：
 
@@ -475,7 +805,7 @@ python -m sglang.launch_server \
 | `--attention-backend` | 是否用 FA3 等高效 attention backend |
 | `--mem-fraction-static` | 预留 KV / graph / runtime 内存 |
 
-### 7.2 vLLM 示例
+### 9.2 vLLM 示例
 
 vLLM 的 speculator 配置通常放在 JSON 参数里：
 
@@ -503,9 +833,11 @@ vllm serve Qwen/Qwen3-8B \
 
 ---
 
-## 八、工程判断：什么时候开，什么时候别开
+---
 
-### 8.1 适合开 speculative decoding 的场景
+## 十、工程判断：什么时候开，什么时候别开
+
+### 10.1 适合开 speculative decoding 的场景
 
 | 场景 | 原因 |
 |---|---|
@@ -515,7 +847,7 @@ vllm serve Qwen/Qwen3-8B \
 | batch 不总是打满 | spec decode 能把单请求 latency 拉低 |
 | drafter 很贴 target | acceptance length 稳定 |
 
-### 8.2 不一定适合的场景
+### 10.2 不一定适合的场景
 
 | 场景 | 风险 |
 |---|---|
@@ -525,7 +857,7 @@ vllm serve Qwen/Qwen3-8B \
 | drafter 占显存太多 | KV cache 可用空间下降，反而降低并发 |
 | target/draft tokenizer 不一致 | correctness 和实现复杂度都危险 |
 
-### 8.3 线上必须看哪些指标
+### 10.3 线上必须看哪些指标
 
 ```text
 spec/acceptance_length_p50
@@ -550,7 +882,29 @@ benchmark tokens/s 变高
 
 ---
 
-## 九、面试问答与常见坑
+### 10.4 读论文时要带着系统问题读
+
+最近几条线可以这样连起来：
+
+| 论文/实现 | 你应该关注什么 |
+|---|---|
+| FlashInfer | 动态请求形状如何和 CUDAGraph、JIT kernel、load-balanced scheduling 共存 |
+| vLLM / SGLang | request scheduler、paged KV、prefix cache、chunked prefill、spec decode 如何组合 |
+| EAGLE-3 / EAGLE 3.1 | drafter 质量提高后，serving bottleneck 会从 target 转到 draft / verify plumbing |
+| DFlash | 用 block diffusion 降低 autoregressive draft cost，但要求 runtime 支持 hidden-state extraction 与 KV injection |
+| MiniMax-M2 系列 | agent RL serving 里 prefill/decode disaggregation、MTP spec decode、global KV cache pool 会一起出现 |
+
+面试时不要只说“DFlash 更快”。更高质量的回答是：
+
+```text
+DFlash 降低 draft 串行成本，提高 acceptance length；
+但 serving runtime 必须处理 hidden-state plumbing、verify batch scheduling、
+KV commit/rollback、streaming correctness 和 p95 ITL 保护。
+```
+
+---
+
+## 十一、面试问答与常见坑
 
 ### Q1：Speculative decoding 为什么不是 distillation？
 
@@ -596,8 +950,12 @@ GPU memory headroom
 - [Medusa: Simple LLM Inference Acceleration Framework with Multiple Decoding Heads](https://arxiv.org/abs/2401.10774)
 - [EAGLE-3: Scaling up Inference Acceleration of Large Language Models via Training-Time Test](https://arxiv.org/abs/2503.01840)
 - [DFlash: Block Diffusion for Flash Speculative Decoding](https://arxiv.org/abs/2602.06036)
+- [FlashInfer: Efficient and Customizable Attention Engine for LLM Inference Serving](https://arxiv.org/abs/2501.01005)
+- [vLLM: Inside vLLM, Anatomy of a High-Throughput LLM Inference System](https://vllm.ai/blog/2025-09-05-anatomy-of-vllm)
+- [vLLM EAGLE 3.1 Blog](https://vllm.ai/blog/2026-05-26-eagle-3-1)
 - [NVIDIA: Boost Inference Performance up to 15x on Blackwell Using DFlash Speculative Decoding](https://developer.nvidia.com/blog/boost-inference-performance-up-to-15x-on-nvidia-blackwell-using-dflash-speculative-decoding/)
 - [LMSYS: Next-Generation Speculative Decoding with DFlash and Spec V2](https://www.lmsys.org/blog/2026-06-15-next-generation-speculative-decoding-dflash-v2/)
 - [vLLM Speculators DFlash Documentation](https://docs.vllm.ai/projects/speculators/en/latest/user_guide/algorithms/dflash/)
 - [z-lab/dflash GitHub](https://github.com/z-lab/dflash)
 - [Qwen3-8B-DFlash-b16 Hugging Face model card](https://huggingface.co/z-lab/Qwen3-8B-DFlash-b16)
+- [MiniMax-M2 Series Technical Report](https://arxiv.org/abs/2605.26494)

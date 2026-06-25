@@ -3,6 +3,9 @@
 > [!info] 概述
 > 本教程从**系统工程视角**解析 LLM post-training 中的强化学习基础设施，覆盖 TRL、veRL、slime、AReaL、ROLL、Forge 等主流框架。算法部分只讲 PPO 与 GRPO 的关键设计决策，重点在「它们如何决定系统形态」。配套练习见 [[MLSYS15 RL Infra 自测 35 问]]。
 
+> [!note] 2026-06 review 更新
+> 这一版把第 14 课按最新公开材料重新校了一遍：AReaL v5 把 fully async 的收益表述为最高 **2.77×**；SkyRL-Agent 把多轮 agent rollout 拆成 runtime init / agent run / reward calculation / backend bridge；MiniMax-M2/Forge 把 agent-native RL、异构 prefill-decode disaggregation、global KV cache pool 和在线 speculative drafter 训练放到同一套系统里。读这篇时不要只背框架名，要追问三件事：**谁生成 trajectory、谁保证 token provenance、谁控制 staleness 和 weight sync**。
+
 ---
 
 ## 目录
@@ -15,7 +18,7 @@
 6. [[#六、专题深入]]
 7. [[#七、选型决策树与展望]]
 8. [[#八、代码级框架精读：slime、SkyRL 与 Sandbox]]
-9. [[#九、可以继续做的方向]]
+9. [[#九、基于现有工作的理论分析]]
 
 ---
 
@@ -697,7 +700,7 @@ Agentic RL，工具调用 + 多轮对话 + 自定义 scaffold
 
 ### 7.2 趋势判断
 
-**1. 异步成为默认**：随着 CoT 推理和 agentic 任务的序列长度飙升，同步 RL 的 GPU 利用率过低，异步化不可避免。未来 1–2 年，大多数工业级框架都会默认异步模式。
+**1. 异步成为默认**：AReaL、Forge、ROLL Flash、slime async 和 SkyRL fully async 都指向同一个结论：随着 CoT 推理和 agentic 任务的序列长度飙升，同步 RL 的 GPU 利用率过低，异步化已经从可选优化变成工业系统的基础能力。
 
 **2. Training-as-a-Service**：把 RL 训练封装成一个服务（给定 trajectory + reward，返回梯度或更新后的权重），让 agent 开发者不需要理解底层训练框架。Forge 的 Gateway 设计是这个方向的先行者；Tinker（魔搭）是另一个代表。
 
@@ -1718,158 +1721,246 @@ sandbox boot semaphore
 
 ---
 
-## 九、可以继续做的方向
+## 九、基于现有工作的理论分析
 
-这一节不是“未来展望”的空话，而是可以真正做成系统论文、开源 PR 或实习项目的方向。
-
-### 9.1 方向一：Token Provenance Debugger
-
-问题：agentic RL 最容易出现“字符串看起来对，token 训练目标错了”。工具 observation、sub-agent、context compaction、chat template 变化都会打断 token provenance。
-
-可以做：
+如果只看 2024–2025 的 RLHF 框架，会以为问题是：
 
 ```text
-给每个 token 打来源标签：
-  MODEL_OUTPUT
-  USER_PROMPT
-  TOOL_OBSERVATION
-  TEMPLATE
-  COMPACTION
-  RETOKENIZED_UNTRUSTED
-
-训练前可视化一条 trajectory：
-  token id / text span / loss_mask / reward / rollout_logprob / source
+怎么把 PPO/GRPO 跑得更快？
 ```
 
-价值：
-
-- 快速发现错误 loss mask
-- Debug reward 没涨但 loss 正常下降的问题
-- 给 SkyRL/slime/veRL 都能复用
-
-### 9.2 方向二：Sandbox Pool + Warm Reset
-
-问题：每条 trajectory 都从零 boot sandbox，长尾很严重；但复用 sandbox 又会污染状态。
-
-可以做：
+2026 的公开材料显示，问题已经变成：
 
 ```text
-warm image pool
-  -> pre-boot N 个空 sandbox
-  -> 每个 episode 用 overlay layer
-  -> done 后 reset writable layer
-  -> clean verifier sandbox 独立保留
+怎么把持续变化的 agent execution、inference runtime、sandbox/verifier、
+training backend 和 weight update channel 合成一个稳定闭环？
 ```
 
-关键难点：
+几个近期工作可以这样放：
 
-- 文件系统 snapshot / rollback
-- 网络隔离
-- per-sample dependency 安装如何缓存
-- 如何证明 reset 后无污染
+| 工作 | 新增的系统视角 | 理论问题 |
+|---|---|---|
+| AReaL v5 | generation 和 training 完全解耦，rollout worker 连续生成，训练侧用 staleness-aware PPO 控制旧样本 | policy lag 下如何近似 on-policy optimization |
+| SkyRL-Agent | multi-turn agent rollout 被拆成 runtime init、agent run、reward calculation、backend bridge，并用 dispatcher 做细粒度调度 | agent trajectory 应该是 transition 序列，而不是一段平铺文本 |
+| SkyRL + Harbor | Harbor 负责 terminal agent execution / sandbox / verification，SkyRL 负责 RL training 和 inference engine | 环境状态、reward 和 token action 的边界如何定义 |
+| MiniMax-M2 / Forge | agent-native RL 系统里，prefill/decode disaggregation、global KV cache pool、MTP speculative decoding、tool-use reward 都同时出现 | serving scheduler 会改变 rollout distribution |
+| ProRL Agent | rollout-as-a-service 把 agent execution 从 training cluster 中抽离 | training policy 与 rollout service 的版本一致性如何维护 |
 
-### 9.3 方向三：Staleness-Aware Sampling
-
-SkyRL 当前 staleness manager 是 aggregate capacity bound，不是 per-sample hard bound。长尾 group 可能实际很 stale。
-
-可以做：
+这里最值得背的是 **三个 invariants**：
 
 ```text
-if group_staleness <= S:
-    use normally
-elif reward is high and IS ratio stable:
-    use with smaller weight
-else:
-    drop / resample / distill only
+Invariant 1: token provenance
+  每个 loss_mask=1 的 token 必须能追溯到某次模型采样。
+  从字符串重新 tokenize 得到的 response 不能默认训练。
+
+Invariant 2: policy version
+  每条 trajectory 必须记录 rollout policy version。
+  训练时要知道 staleness，否则 async 只是 off-policy 噪声。
+
+Invariant 3: environment purity
+  reward/verifier 必须在干净环境里运行。
+  agent 探索 sandbox 和 grading sandbox 最好分离。
 ```
 
-训练 loss 可以改成：
+这三个 invariants 比“用 Ray 还是 asyncio”更底层。框架怎么写都可以，但只要破坏其中一个，训练出来的梯度就可能不是你以为的梯度。
+
+### 9.1 异步 RL：带 policy lag 的 on-policy 近似
+
+AReaL 的关键不是“异步更快”，而是把同步 RL 的 batch barrier 和 sync barrier 变成一个可控的 **policy lag** 问题。
+
+同步 GRPO/PPO 的理想假设是：
+
+```text
+rollout data ~ pi_theta_current
+training update also optimizes pi_theta_current
+```
+
+异步以后，样本来自旧 policy：
+
+```text
+rollout data ~ pi_theta_old
+training update optimizes pi_theta_new
+```
+
+这时目标不再是严格 on-policy，而是用 importance ratio 做校正：
 
 $$
-w_i = \exp(-\lambda \cdot \text{staleness}_i)
+r_t(\theta) =
+\frac{\pi_\theta(a_t | s_t)}
+     {\pi_{\theta_{\text{old}}}(a_t | s_t)}
 $$
 
-或者让 clip range 随 staleness 变窄：
+PPO/GRPO 的 clip 项可以理解成：
+
+```text
+允许小范围 policy lag
+拒绝极端 off-policy gradient
+```
+
+AReaL 的 staleness-aware PPO、Forge/CISPO 的 clipped IS、ROLL 里的 TIS/CISPO，都是在同一个理论问题上做工程化版本：
+
+> 数据可以不是最新 policy 生成的，但训练时必须知道它来自哪个 policy，并限制它对梯度的影响。
+
+这解释了为什么“把 rollout queue 开大一点”不是 async RL。queue depth 只是系统参数；真正的算法变量是：
+
+```text
+policy_version_gap
+importance_ratio_distribution
+clip_fraction
+effective_sample_weight
+```
+
+如果这些指标失控，GPU 利用率越高，训练越可能发散。
+
+### 9.2 GRPO group sampling：方差、长尾和系统耦合
+
+GRPO 对同一个 prompt 采样一组 completion，并用 group 内 reward 标准化：
 
 $$
-\epsilon_i = \frac{\epsilon_0}{1 + \alpha \cdot \text{staleness}_i}
+\hat{A}_i =
+\frac{r_i - \mu_{\text{group}}}
+     {\sigma_{\text{group}} + \epsilon}
 $$
 
-这和 CISPO / off-policy correction 是同一方向，但可以在真实 agent workload 上验证。
-
-### 9.4 方向四：MoE Router Replay
-
-MoE RL 最大的坑是 rollout 侧和 training 侧 router 不一致。SkyRL 的 `GeneratorOutput` 已经预留了 `rollout_expert_indices` 字段，这说明系统已经意识到 routing provenance 的重要性。
-
-可以做：
+这有两个理论后果：
 
 ```text
-rollout:
-  return expert_indices[token][layer][topk]
-
-training:
-  force/replay the same expert route
-  compute logprob under matched routing
+1. advantage 是相对值，不是绝对 reward
+2. 一个 prompt 的 G 个 completion 需要一起完成才有 group statistics
 ```
 
-难点：
-
-- Megatron MoE forward 是否支持 externally supplied routing
-- routing replay 与 expert parallel all-to-all 的结合
-- shared experts / fine-grained experts 的格式标准化
-
-如果做出来，价值非常大：它直接解决 MoE train-inference mismatch。
-
-### 9.5 方向五：Rollout-as-a-Service
-
-slime external rollout engines、SkyRL RemoteInferenceClient、ProRL Agent 这类设计都指向同一个趋势：
+所以 GRPO 天然和系统长尾耦合：
 
 ```text
-training cluster
-  only owns optimizer / gradients / checkpoint
-
-rollout service
-  owns inference / agent execution / sandbox / verifier
-
-weight sync channel
-  connects them
+某个 completion 很长
+  -> group advantage 不能计算
+  -> training batch 等待或 buffer 变 stale
+  -> policy lag 增大
 ```
 
-可以做的系统：
-
-- rollout service 暴露统一 API：`submit_task / get_trajectory / sync_weights / health`
-- 支持不同任务：math verifier、SWE sandbox、browser task、SQL env
-- 支持不同 backend：SGLang、vLLM、TensorRT-LLM
-- 支持 delta weight update 和版本追踪
-
-这会让 agent 团队和 infra 团队解耦：agent harness 不需要嵌进训练框架，训练框架也不需要理解每种环境。
-
-### 9.6 方向六：可观测性与失败归因
-
-RL infra 的失败经常不是 crash，而是“reward 不涨”。需要能回答：
+另一个常见问题是 zero-variance group：
 
 ```text
-rollout 慢在哪里？
-reward 为 0 是模型错、verifier 错、sandbox 错，还是 token mask 错？
-staleness 分布是什么？
-weight sync 时间占比多少？
-哪些 env 最常 timeout？
-哪些 prompt 最常产生 zero-variance group？
+所有 completion reward 都一样
+  -> sigma_group 接近 0
+  -> advantage 退化
 ```
 
-建议默认记录：
+这不是单纯算法问题，也不是单纯系统问题。系统侧的 timeout、截断、over-sampling、partial rollout 都会改变 group 内样本分布，从而改变 advantage 的统计性质。高质量 RL infra 必须把下面这些指标一起看：
 
-| 指标 | 用途 |
-|---|---|
-| `rollout/e2e_time` | 找长尾任务 |
-| `rollout/tool_time` | 找 sandbox/tool 瓶颈 |
-| `rollout/num_turns` | 判断是否进入无限循环 |
-| `train/staleness` | 判断 off-policy 风险 |
-| `train/logprob_diff` | 判断 train-inference mismatch |
-| `reward/breakdown` | 判断 reward hacking 或 verifier 问题 |
-| `sync/weight_update_time` | 判断同步是否吞吐瓶颈 |
+```text
+group_completion_time_p95
+group_reward_std
+zero_variance_group_rate
+truncated_completion_rate
+staleness_by_group
+```
 
-这类 observability 工作看起来不“算法”，但在工业 RL 里价值很高。
+### 9.3 Agent 轨迹：transition representation 比 message log 更基本
+
+SkyRL-Agent 的 paper 把多轮 agent 视为 POMDP，每一步是：
+
+```text
+observation/context -> model action -> environment feedback/reward
+```
+
+这比传统“把整段 conversation 拼成一个 response”更适合 agent RL，因为 agent 会：
+
+```text
+调用工具
+修改文件
+压缩历史
+丢弃旧 observation
+调用子 agent
+```
+
+这些操作都会破坏“单一连续文本序列”的假设。更稳的 representation 是 transition：
+
+```text
+{
+  state_or_context,
+  action_token_ids,
+  action_logprobs,
+  observation,
+  reward,
+  done,
+  metadata,
+}
+```
+
+训练时再把 transition 转成 token-level loss。这样才能同时支持 terminal agent、search agent、browser agent、multi-agent 协作。
+
+这里的理论点是：agent RL 的 action space 不是“整段回答”，而是跨多轮的 token action 与 environment transition：
+
+$$
+(o_t, a_t, r_t, o_{t+1})
+$$
+
+其中 `a_t` 是模型生成 token，`o_{t+1}` 可能是工具输出、文件系统状态、浏览器状态或 sandbox 测试结果。只有 `a_t` 应该进 policy gradient；observation 只改变下一步 state，不应该被当作模型动作训练。
+
+这就是 token provenance 的理论基础：
+
+```text
+loss_mask=1 只对应 policy action
+loss_mask=0 对应 prompt / observation / template / environment feedback
+```
+
+如果把整段 message history 重新 tokenize 后统一训练，就相当于把 environment observation 也当成 action，优化目标已经变了。
+
+### 9.4 Serving scheduler 会改变 rollout distribution
+
+Forge/MiniMax-M2 暴露出的趋势是：agent RL 不再是“训练脚本调用推理服务”，而是训练系统和推理系统共同优化：
+
+```text
+training side:
+  optimizer / gradient / checkpoint / policy version
+
+serving side:
+  prefill-decode disaggregation
+  global KV cache pool
+  cost-aware request routing
+  online MTP/speculative drafter adaptation
+  tool-use trajectory collection
+```
+
+为什么这重要？因为 agent RL 的 rollout 有大量共享前缀、多轮对话和工具 observation。如果每一轮都重新 prefill，训练吞吐会被 prompt replay 吃掉。Global KV cache pool / session-aware routing 的意义就是：
+
+```text
+让同一条 trajectory 的后续 turn 尽量复用前面算过的 KV。
+```
+
+从理论角度看，scheduler 不是中性的。它会改变哪些样本先完成、哪些样本被 timeout、哪些样本因为 cache locality 被优先处理：
+
+```text
+length-aware scheduling
+  -> 短样本更快进入 train buffer
+
+session-aware routing
+  -> 多轮 agent 的 prefix cache 命中率更高
+
+timeout / truncation
+  -> 长推理样本更容易被丢弃或低权重使用
+```
+
+这些机制都会影响 empirical training distribution。高质量的系统需要记录 scheduler-induced bias，而不是只记录总 tokens/s。
+
+### 9.5 本章要背的三个 invariants
+
+高质量 RL infra 的判断标准不是“支持 PPO/GRPO”，而是能不能守住三个 invariants：
+
+```text
+Invariant 1: token provenance
+  每个 loss_mask=1 的 token 必须能追溯到某次模型采样。
+  从字符串重新 tokenize 得到的 response 不能默认训练。
+
+Invariant 2: policy version
+  每条 trajectory 必须记录 rollout policy version。
+  训练时要知道 staleness，否则 async 只是 off-policy 噪声。
+
+Invariant 3: environment transition
+  reward/verifier 必须对应干净、可复现的环境转移。
+  agent exploration state 和 grading state 不能混在一起。
+```
 
 ---
 
@@ -1890,6 +1981,8 @@ weight sync 时间占比多少？
 - [SkyRL Harbor integration](https://docs.skyrl.ai/docs/harbor)
 - [ProRL Agent: Rollout-as-a-Service for RL Training of Multi-Turn LLM Agents](https://arxiv.org/html/2603.18815v1)
 - [Forge: MiniMax RL 框架](https://huggingface.co/blog/MiniMax-AI/forge-scalable-agent-rl-framework-and-algorithm)
+- [MiniMax-M2 Series Technical Report](https://arxiv.org/abs/2605.26494)
+- [MiniMax Forge official post](https://www.minimax.io/blog/forge-scalable-agent-rl-en-1779896141)
 - [Keep the Tokens Flowing: 16 开源 RL 框架对比](https://huggingface.co/blog/async-rl-training-landscape)
 - [Anatomy of RL Frameworks](https://www.hanifleo.com/anatomy-of-rl-frameworks/)
 - [FP8-RL: 低精度 RL 训练](https://arxiv.org/abs/2601.18150)

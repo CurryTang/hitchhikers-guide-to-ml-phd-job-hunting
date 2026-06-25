@@ -24,9 +24,10 @@ SonicMoE 解决的 kernel 瓶颈是什么？
 5. [[#五、fine-grained sparse MoE 为什么更难]]
 6. [[#六、SonicMoE 解决了什么]]
 7. [[#七、代码层面怎么理解 MoE forward]]
-8. [[#八、训练和 serving 里的工程 checklist]]
-9. [[#九、面试问答与常见坑]]
-10. [[#参考资料]]
+8. [[#八、系统调度层：MoE 不是单卡 kernel 问题]]
+9. [[#九、训练和 serving 里的工程 checklist]]
+10. [[#十、面试问答与常见坑]]
+11. [[#参考资料]]
 
 ---
 
@@ -556,11 +557,295 @@ grouped GEMM wants tile-friendly packed layout
 output must return to original token order
 ```
 
+### 7.4 vLLM / SGLang fused MoE 的实现映射
+
+vLLM 的 fused MoE 路径里，有几个名字很值得记：
+
+```text
+hidden_states:      [num_tokens, hidden]
+topk_ids:           [num_tokens, top_k]
+topk_weights:       [num_tokens, top_k]
+sorted_token_ids:   routed tokens sorted/grouped by expert
+expert_ids:         each block should use which expert weight
+num_tokens_post_padded:
+                    routed token count after padding to BLOCK_SIZE_M
+w1 / w2:            expert weights
+```
+
+这组变量正好对应 MoE kernel 的核心问题：
+
+```text
+router output 是 token-major:
+  token -> top-k experts
+
+grouped GEMM 想要 expert-major:
+  expert -> contiguous tokens
+```
+
+所以 fused MoE 不是一个 GEMM kernel，而是一条 pipeline：
+
+```text
+topk_ids/topk_weights
+  -> align_and_sort
+  -> sorted_token_ids + expert_ids + padded_count
+  -> grouped GEMM for gate/up projection
+  -> activation (SwiGLU/SiLU)
+  -> grouped GEMM for down projection
+  -> weighted combine + unpermute
+```
+
+SGLang fused MoE 也有类似的 align/sort 预处理。它的实现讨论里特别强调：在 MoE kernel launch 之前，先把 token 按 expert 对齐和排序；早期 Triton 路线会拆成多阶段，后来 CUDA 路线把部分阶段合并，减少小 workload 下的 launch 和寄存器/缓存浪费。
+
+### 7.5 一个简化 Triton grouped GEMM kernel
+
+下面这个代码不是可直接运行的生产 kernel，而是为了看懂 fused MoE 的结构。真实 vLLM/SGLang/PyTorch kernel 会处理 quantization、stride、split-K、FP8、expert map、all2all、persistent scheduling 等细节。
+
+```python
+import triton
+import triton.language as tl
+
+
+@triton.jit
+def grouped_gemm_moe_kernel(
+    X, W, Y,
+    sorted_token_ids, expert_ids,
+    M_per_expert_offsets,
+    H: tl.constexpr, I: tl.constexpr,
+    BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr,
+):
+    pid = tl.program_id(0)
+
+    # Each program owns one output tile. In real kernels, pid -> (expert, m_tile, n_tile)
+    # mapping is built from a flattened tile schedule.
+    expert = tl.load(expert_ids + pid)
+    m_start = tl.load(M_per_expert_offsets + expert)
+    token_block = tl.load(sorted_token_ids + pid * BLOCK_M + tl.arange(0, BLOCK_M))
+
+    offs_m = tl.arange(0, BLOCK_M)
+    offs_n = tl.arange(0, BLOCK_N)
+    offs_k = tl.arange(0, BLOCK_K)
+
+    acc = tl.zeros((BLOCK_M, BLOCK_N), tl.float32)
+
+    for k0 in range(0, H, BLOCK_K):
+        x = tl.load(
+            X + token_block[:, None] * H + (k0 + offs_k[None, :]),
+            mask=token_block[:, None] >= 0,
+            other=0.0,
+        )
+        w = tl.load(
+            W + expert * H * I + (k0 + offs_k[:, None]) * I + offs_n[None, :],
+            mask=(k0 + offs_k[:, None] < H) & (offs_n[None, :] < I),
+            other=0.0,
+        )
+        acc += tl.dot(x, w)
+
+    tl.store(
+        Y + (m_start + offs_m[:, None]) * I + offs_n[None, :],
+        acc.to(tl.float16),
+        mask=offs_n[None, :] < I,
+    )
+```
+
+这个 skeleton 里最关键的是三件事：
+
+| 代码变量 | 系统含义 |
+|---|---|
+| `sorted_token_ids` | dispatch 后的 token 顺序，不再等于原始 batch 顺序 |
+| `expert_ids` | 每个 tile 绑定哪个 expert weight |
+| `M_per_expert_offsets` | 每个 expert 在 packed buffer 里的起点 |
+
+如果 expert token count 很不均匀，某些 expert 的 tile 很少，某些 expert 的 tile 很多。朴素 CTA 分配会导致 SM 工作不均。PyTorch 2025 的 Triton grouped GEMM 优化用 persistent kernel 思路：让一批 program 常驻 SM，按 `tile_id += NUM_SMS` 动态取活，而不是每个 tile 启一个完全独立的 wave。
+
+### 7.6 为什么 fused gate/up 很重要
+
+现代 FFN 常用 SwiGLU：
+
+```text
+up   = X @ W_up
+gate = X @ W_gate
+hidden = silu(gate) * up
+out = hidden @ W_down
+```
+
+朴素实现会把 `up` 和 `gate` 都写回 HBM：
+
+```text
+read X
+compute gate -> write HBM
+compute up   -> write HBM
+read gate/up
+compute silu(gate) * up
+write hidden
+read hidden
+compute down
+```
+
+fused gate/up 的目标是：
+
+```text
+一次读 X
+同时算 gate/up
+silu 和 multiply 在 register 里完成
+尽量少把 intermediate 写回 HBM
+```
+
+TritonMoE 的公开结果把这个作为核心优化之一：把 router、token permutation、expert GEMM、weighted combine 尽量融合，并通过 fused gate+up projection 减少全局内存流量。这个方向对 inference batch size 特别重要，因为 batch 小时 HBM/launch overhead 的占比比大 batch training 更高。
+
+### 7.7 SonicMoE 与 grouped GEMM kernel 的关系
+
+可以把几类工作放在同一张图里：
+
+| 工作 | 关注点 | 典型问题 |
+|---|---|---|
+| vLLM/SGLang fused MoE | serving runtime 内的 fused experts | token align/sort、padding、quant、EP all2all |
+| PyTorch Triton grouped GEMM | grouped GEMM kernel 本身 | persistent scheduling、L2 locality、SM 利用率 |
+| TritonMoE | portable fused dispatch | 不写 CUDA，融合 router/dispatch/expert/combiner |
+| SonicMoE | fine-grained MoE training layer | minimal activation caching、IO/compute overlap、tile-aware rounding |
+
+SonicMoE 更偏训练和 fine-grained expert。它关心的不只是 forward 快不快，还包括 backward 要不要保存大量 activation：
+
+```text
+save everything:
+  simple backward
+  huge activation memory
+
+minimal activation caching:
+  save compact metadata
+  backward recompute selected tensors
+  lower HBM footprint
+```
+
+所以 SonicMoE 的贡献不能只说“MoE kernel 更快”。更准确是：
+
+```text
+它把 MoE layer 当成 IO-bound + irregular grouped GEMM + backward activation memory
+三者耦合的问题来解，而不是只优化 forward grouped GEMM。
+```
+
 ---
 
-## 八、训练和 serving 里的工程 checklist
+## 八、系统调度层：MoE 不是单卡 kernel 问题
 
-### 8.1 训练侧
+### 8.1 EP All-to-All 的调度问题
+
+Expert Parallelism 下，token 要先被送到 expert 所在 GPU，再把输出送回来：
+
+```text
+local hidden states
+  -> local router top-k
+  -> all-to-all dispatch hidden states
+  -> local expert grouped GEMM
+  -> all-to-all combine expert outputs
+  -> restore original token order
+```
+
+系统调度要回答：
+
+```text
+每张 GPU 放哪些 experts？
+top-k 后每张 GPU 会收到多少 routed tokens？
+all-to-all 和 local expert compute 能不能 overlap？
+hot expert 会不会让某一张 GPU 成为 straggler？
+```
+
+如果 batch 很小，EP 往往不划算，因为 all-to-all 的固定延迟压过了 expert 参数分片的收益。经验上要看：
+
+```text
+tokens_per_expert_per_step
+all_to_all_time / moe_layer_time
+expert_gemm_utilization
+p95 expert token count / mean expert token count
+```
+
+### 8.2 Serving 里的 MoE 调度比训练更难预测
+
+训练 batch 通常更规则：
+
+```text
+固定 global batch
+固定 sequence packing
+较稳定的 token count
+```
+
+Serving batch 是动态的：
+
+```text
+短请求和长请求混在一起
+prefill 和 decode 混在一起
+不同用户 prompt 导致 routing 分布不同
+continuous batching 每轮 batch 都变
+```
+
+所以 MoE serving 的瓶颈经常在 p95/p99，而不是平均 tokens/s：
+
+| 现象 | 可能原因 |
+|---|---|
+| 平均吞吐还行，p99 latency 很差 | 少数 hot experts 拖尾 |
+| batch 越大反而没线性提升 | all-to-all 或 grouped GEMM padding 增长 |
+| prefix cache 命中高但 latency 仍高 | attention 省了，MoE layer 仍要 route/dispatch/compute |
+| spec decode 收益不稳定 | target/draft MoE router 分布不同，verify batch 形状抖动 |
+
+### 8.3 MoE + Speculative Decoding 的特殊坑
+
+Dense target + dense draft 已经有 acceptance ratio 问题。MoE target 再多一层 routing：
+
+```text
+draft proposes token d
+target verifies token d
+target MoE router chooses experts per layer
+```
+
+如果 target 的 routing 在不同 batch shape、不同 precision、不同 runtime 下不稳定，训练/推理一致性会受影响。对 RL 来说更麻烦，因为 rollout logprob 和 training logprob 都要重算：
+
+```text
+rollout side:
+  vLLM/SGLang computes logprob with one MoE routing implementation
+
+training side:
+  Megatron/FSDP computes logprob with another MoE routing implementation
+```
+
+这就是第 14 课里提到 `rollout_expert_indices` / router replay 的意义。MoE 不只是 serving 性能问题，也会变成 RL correctness 问题。
+
+### 8.4 该怎么 profile 一个 MoE layer
+
+不要只看总 step time。至少拆成：
+
+```text
+router_topk_time
+align_sort_time
+all_to_all_dispatch_time
+grouped_gemm_w1_time
+activation_time
+grouped_gemm_w2_time
+combine_unpermute_time
+all_to_all_combine_time
+padding_waste_ratio
+expert_load_cv
+```
+
+其中两个指标最有诊断价值：
+
+| 指标 | 解释 |
+|---|---|
+| `padding_waste_ratio` | rounded tokens / real tokens，判断 kernel tile 浪费 |
+| `expert_load_cv` | expert token count 的 coefficient of variation，判断 routing skew |
+
+优化顺序通常是：
+
+```text
+先看 load balance
+再看 all-to-all
+再看 grouped GEMM utilization
+最后再抠单 kernel micro-optimization
+```
+
+---
+
+## 九、训练和 serving 里的工程 checklist
+
+### 9.1 训练侧
 
 | 检查项 | 为什么重要 |
 |---|---|
@@ -581,7 +866,7 @@ all-to-all p95 长尾拖慢 step time
 aux loss 降了主任务质量
 ```
 
-### 8.2 Serving 侧
+### 9.2 Serving 侧
 
 推理时常见配置：
 
@@ -602,7 +887,7 @@ serving 的难点：
 | prefix cache 和 routing 无关 | 命中 prefix cache 不等于 MoE layer 免费 |
 | speculative decoding + MoE | draft/target router mismatch 需要额外观测 |
 
-### 8.3 MoE + RL 的特殊问题
+### 9.3 MoE + RL 的特殊问题
 
 RL rollout 和 training 可能不在同一套 inference engine 上。MoE 下要额外问：
 
@@ -626,7 +911,9 @@ training:
 
 ---
 
-## 九、面试问答与常见坑
+---
+
+## 十、面试问答与常见坑
 
 ### Q1：MoE 为什么不是简单 ensemble？
 
@@ -680,4 +967,9 @@ tokens
 - [SonicMoE: Minimal Activation Caching for Fine-Grained MoE Training](https://arxiv.org/abs/2512.14080)
 - [Dao-AILab SonicMoE GitHub](https://github.com/Dao-AILab/sonic-moe)
 - [Tri Dao: SonicMoE on Blackwell GPUs](https://tridao.me/blog/2026/sonicmoe-blackwell/)
+- [Cross-Platform Fused MoE Dispatch in Triton](https://arxiv.org/abs/2605.23911)
+- [vLLM fused MoE implementation](https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/fused_moe/fused_moe.py)
+- [vLLM fused MoE kernel feature guide](https://docs.vllm.ai/en/latest/design/moe_kernel_features.html)
+- [SGLang Efficient MoE Align & Sort](https://huggingface.co/blog/yiakwy-xpu-team/efficient-moe-align-sort-design-for-sglang)
+- [PyTorch: Triton Persistent Cache-Aware Grouped GEMM for MoE](https://pytorch.org/blog/accelerating-moes-with-a-triton-persistent-cache-aware-grouped-gemm-kernel/)
 - [NVIDIA: Applying Mixture of Experts in LLM Architectures](https://developer.nvidia.com/blog/applying-mixture-of-experts-in-llm-architectures/)
