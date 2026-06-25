@@ -97,21 +97,51 @@ On-policyness ─── 灵活性 (Agentic/Env)
 
 ### 2.2 六条设计轴（分析任何框架的坐标系）
 
-| 轴 | 两极 | 核心 Trade-off |
-|----|------|----------------|
-| **控制流** | Single-controller | Multi-controller | 灵活性 vs 效率 |
-| **资源放置** | Colocated（时分复用） | Disaggregated（空间分离） | 显存 vs 利用率 |
-| **权重同步** | NCCL broadcast | Filesystem/RDMA | 速度 vs 复杂性 |
-| **同步性** | Strictly on-policy | Fully async | 算法正确性 vs 吞吐量 |
-| **训练后端** | Megatron-Core | FSDP2 / DeepSpeed ZeRO | MoE/PP 支持 vs 易用性 |
-| **Rollout 引擎** | vLLM | SGLang | 各有优劣（详见 §4.3） |
+这六条轴不是分类标签，而是读任何 RL infra 框架时的坐标系。一个框架为什么快、为什么难用、为什么只适合某种模型规模，通常都能沿着这几条轴解释。
 
-### 2.3 重要数字（请记住这些）
+| 轴 | 一端 | 另一端 | 核心 Trade-off |
+|----|------|--------|----------------|
+| **控制流** | Single-controller：一个中心进程编排 rollout、reward、advantage、training | Multi-controller：rollout / training / reward worker 各自有本地控制器 | Single-controller 更容易写复杂算法和调试数据流；Multi-controller 更容易扩到大集群，但全局状态更难维护 |
+| **资源放置** | Colocated：rollout 和 training 共用同一批 GPU，按阶段时分复用 | Disaggregated：rollout GPU、training GPU、reward GPU 分池部署 | Colocated 显存利用紧凑、部署简单，但阶段切换和权重同步会产生 idle；Disaggregated 吞吐更高，但需要持续传权重、传 rollout 数据、做跨池调度 |
+| **权重同步** | NCCL broadcast：trainer 直接把新权重广播到 rollout worker | Filesystem / Object Store / RDMA：先落盘或走远端传输，再由 rollout 侧加载 | NCCL 快、路径短，但要求 GPU 拓扑和进程组更稳定；文件/RDMA 更松耦合，适合异构资源池，但工程复杂度和尾延迟更高 |
+| **同步性** | Strictly on-policy：rollout 用的权重和训练更新严格对齐 | Fully async：rollout 可以用滞后的 policy，trainer 持续消费数据 | On-policy 算法干净、收敛分析简单，但 GPU 容易互相等待；async 吞吐高，但必须处理 staleness、importance ratio、policy drift 和样本丢弃 |
+| **训练后端** | Megatron-Core：TP / PP / EP / CP 比较完整 | FSDP2 / DeepSpeed ZeRO：参数分片和易用性优先 | Megatron 更适合大 MoE、pipeline、expert parallel；FSDP2/ZeRO 更容易接入 PyTorch 生态，但超大 MoE 和 PP 控制力弱一些 |
+| **Rollout 引擎** | vLLM：PagedAttention、continuous batching、生态成熟 | SGLang：RadixAttention、结构化程序、agent / tool call 表达更自然 | vLLM 更像高吞吐通用 serving engine；SGLang 更适合大量共享前缀、树状展开和复杂 agent program |
+
+**控制流**决定框架的可理解性。Single-controller 的典型写法是一个 Python driver 按顺序调用 `generate -> reward -> advantage -> update`，所以新算法、新 reward pipeline、新 sandbox 逻辑都容易塞进去。问题是当 worker 数变多，中心 driver 要维护所有状态、收发大量对象、处理异常和重试，本身可能变成瓶颈。Multi-controller 把控制权下放给各 worker group，本地可以更高效地调度 GPU，但调试时要跨多个进程看状态，出错也更难复现。
+
+**资源放置**决定 GPU 会不会空转。Colocated 系统把 rollout 和 training 放在同一批 GPU 上，优点是资源池小、网络路径短、权限和环境简单；缺点是 rollout 时 trainer 闲，training 时 rollout engine 闲，中间还要 reshape / reload / reshard 权重。Disaggregated 系统把 rollout 和 training 拆开，能让两边持续工作，但代价是每次 policy update 都要把权重推到 rollout 侧，并且要保证 rollout 数据不会因为 policy 太旧而污染训练。
+
+**权重同步**是 RL infra 最容易被低估的成本。小模型上同步几十毫秒，大家会觉得它只是实现细节；模型到 200B、1T 参数后，同步本身就是主瓶颈。NCCL broadcast 的优势是直接、带宽高，适合同构 GPU 池；filesystem / object store / RDMA 的优势是解耦 trainer 和 rollout engine，适合 disaggregated 架构，但要额外处理版本号、加载时机、失败重试、旧权重清理和多副本一致性。
+
+**同步性**决定算法和系统能不能分开优化。严格 on-policy 最省心：每批 rollout 都对应当前 policy，PPO/GRPO 的 ratio 和 clip 更好解释。异步系统会让 rollout 数据带着旧 policy 的 logprob 进入 trainer，因此必须记录生成时的 policy version、old logprob、token mask，并用 importance ratio 或 staleness-aware clipping 控制偏差。AReaL、CISPO 这类工作之所以重要，是因为它们把系统异步和算法修正放在一起设计。
+
+**训练后端**决定模型上限。FSDP2 / ZeRO 适合快速搭系统，尤其是 dense model、单机或中小规模多机；Megatron-Core 更适合模型已经大到需要 TP、PP、EP、CP 一起上场的场景。MoE RL 尤其依赖训练后端，因为 expert parallel 不只是省显存，还影响 token dispatch、load balancing、optimizer state placement 和 checkpoint layout。
+
+**Rollout 引擎**决定生成阶段的形态。vLLM 的强项是成熟 serving 能力：paged KV、continuous batching、prefix cache、OpenAI-compatible server。SGLang 的强项是把生成过程表达成 program：共享 system prompt、分支采样、工具调用、regex/JSON 约束、tree expansion。GRPO 这种同 prompt 多 completion 的训练，天然吃 prefix sharing；agent RL 则更看重 program-level scheduling 和 tool boundary。
+
+### 2.3 关键量级
 
 - 权重广播延迟：Qwen3-235B 在 8xH800 上约 **6.75 秒**；Kimi-K2（~1T 参数）在 256xH20 上约 **21.5 秒**
 - slime 对 Qwen3-30B-A3B 在 8xH100 上权重传输约 **7 秒**（分桶 NCCL）
 - veRL 分桶传输（packed=True）可将广播时间从 ~500ms 压缩到 **~20ms**（适用于较小模型）
 - AReaL 相比同步系统在相同 GPU 数量下实现 **2.77× 吞吐提升**
+
+这些数字的价值不在于背精确小数，而在于建立量级感。RL post-training 的 step time 往往由三段组成：
+
+```text
+rollout time + weight sync time + training update time
+```
+
+如果权重同步是 20ms，它只是普通 overhead；如果同步是 7 秒，它已经足以吞掉一次短 rollout 的收益；如果同步到 20 秒级，系统就必须考虑异步、partial rollout、权重版本滞后和跨池调度。也就是说，模型越大，RL infra 越不能只讨论 PPO/GRPO 算法，必须讨论 weight movement。
+
+Qwen3-235B 和 Kimi-K2 的广播延迟说明了同一个问题：参数量扩大后，policy update 不再是 trainer 内部事件，而是整个 serving pool 的状态切换。同步式系统会在切换期间让 rollout worker 等新权重；异步式系统则允许 rollout worker 继续用旧权重生成，但 trainer 必须知道这些样本来自哪个 policy version。
+
+slime 的 Qwen3-30B-A3B 例子说明，即使是 30B 级别的 MoE active-parameter 模型，权重传输也可能到秒级。分桶 NCCL 可以把大权重切成多个 bucket 传输，减少一次性同步造成的长阻塞，但它不能消除“权重必须从 trainer 到 rollout”的事实。
+
+veRL 的 packed=True 数字说明小模型或较小权重切片下，工程实现会决定同步是否成为瓶颈。把小 tensor 合并成大 bucket，减少 Python/RPC 调度和 NCCL 小包开销，可以把几百毫秒级同步压到几十毫秒。这个优化在小模型上非常有效，但不能直接外推到 200B 或 1T 模型。
+
+AReaL 的 2.77× 吞吐提升代表 fully async 的上限收益来自减少等待：rollout 不必等 trainer 完成，trainer 也不必等所有 rollout 都回来。代价是训练数据更旧，系统要用 staleness-aware clip、interruptible rollout、re-prefill 等机制控制偏差和资源浪费。
 
 ---
 
@@ -167,7 +197,7 @@ $$
 | clip + IS ratio 的存在 | **这是异步化的算法基础**：$r_t(\theta) = \pi_\theta / \pi_{\text{old}}$ 可以修正 off-policy 误差，允许适度 staleness |
 | GRPO 大 group size | 更快的 policy drift → 更频繁需要权重同步 |
 
-**变体一览表**（不展开，按需查阅）：
+**GRPO 变体的系统含义**：
 
 | 方法 | 相比 GRPO 改了什么 | 系统侧影响 |
 |------|---------------------|------------|
@@ -175,6 +205,10 @@ $$
 | GSPO | KL 基于序列级而非 token 级 | reward 计算变化 |
 | Dr.GRPO | 对 degenerate group 做特殊处理 | 额外 filter 逻辑 |
 | CISPO | IS 修正以容忍更大 staleness | **直接服务于异步架构** |
+
+这些变体可以按“改算法目标”还是“改系统容忍度”来理解。DAPO、GSPO、Dr.GRPO 更偏训练目标和 reward shaping：它们改变 token / sequence 的约束方式，或者处理 group 内 reward 没有区分度时的退化情况。系统侧通常要增加一些 mask、filter、统计量和 reward 后处理，但不一定要求重写调度器。
+
+CISPO 更偏系统友好型算法。异步 rollout 的核心问题是 sample staleness：生成样本时的 policy 和训练更新时的 policy 已经不是同一个。CISPO 这类方法把 importance sampling 和 clipping 设计得更能容忍 stale sample，因此它直接影响 AReaL 这类 async framework 能把 rollout worker 和 trainer 解耦到什么程度。
 
 ---
 
@@ -198,6 +232,22 @@ $$
 └─────────────┘                    └──────────────────┘
 ```
 
+这张图里最容易误解的是 Orchestrator。它不是模型训练后端，也不是 serving engine；它负责把 RL 训练的长链路串起来：发 prompt、启动 rollout、收 completion、跑 reward、算 advantage、触发 training step、同步新权重、处理失败重试和状态记录。
+
+**Ray 的作用**主要是做分布式控制面。RL infra 里的对象很杂：有 GPU worker、CPU reward worker、sandbox worker、vLLM/SGLang server、trainer actor、数据队列和 checkpoint manager。Ray actor / task 给这些组件一个统一的生命周期管理和 RPC 抽象：
+
+| Ray 负责什么 | 在 RL 系统里的含义 |
+|---|---|
+| Actor placement | 把 rollout worker、trainer、reward worker 放到指定 GPU/CPU 节点 |
+| Remote call | Orchestrator 用 RPC 调 `generate()`、`compute_reward()`、`train_step()` |
+| Object store | 临时存 prompt、completion、logprob、reward、advantage 等中间数据 |
+| Fault handling | worker 挂掉后重启，失败任务重试，避免整轮训练直接崩 |
+| Resource label | 区分 H100/H800/H20、CPU sandbox、reward model GPU、rollout GPU |
+
+Ray 解决的是“怎么把分布式 Python 系统跑起来”，但不会自动解决模型并行、显存分片、KV cache、权重同步和 staleness。真正的性能仍然取决于 rollout engine 和 training engine。
+
+Orchestrator 也不一定必须用 Ray。小系统可以用单进程 asyncio 管多个 HTTP server；agent-native 系统也可能把 rollout 暴露成 OpenAI-compatible endpoint，由 HTTP gateway 做 admission control 和流量治理。Ray 的优势是把复杂 worker 拓扑放进一个 Python 编排模型里；劣势是对象拷贝、序列化、调度延迟和调试复杂度会随着规模上升。
+
 **Rollout Engine** 的核心能力：
 - **Paged KV Cache**：将 KV cache 分页管理，避免内存碎片，支持可变长度序列
 - **Continuous Batching**：不等待整批完成，新请求随时插入，提升 GPU 利用率
@@ -208,6 +258,35 @@ $$
 - FSDP2（PyTorch 原生）：ZeRO-3 风格参数分片，易用但缺少 PP 和 EP 支持
 - DeepSpeed ZeRO-3：ZeRO offload，适合资源受限场景，MoE EP 支持弱
 
+Training Engine 的核心设计不是“调用一次 backward”这么简单，而是决定训练态模型如何切分、如何通信、如何保存 optimizer state、如何导出给 rollout engine。对 RL 来说，它还要额外处理 rollout logprob、old logprob、mask、advantage 和 policy version。
+
+| 设计点 | Training Engine 要解决什么 |
+|---|---|
+| 参数切分 | 权重、梯度、optimizer state 放在哪些 GPU 上 |
+| 并行维度 | TP、PP、DP、EP、CP 怎么组合，哪些通信走 intra-node，哪些走 inter-node |
+| Microbatch schedule | pipeline bubble 如何压低，gradient accumulation 怎么和 rollout batch 对齐 |
+| MoE dispatch | token 到 expert 的路由、负载均衡、expert parallel 通信 |
+| Checkpoint / export | training layout 如何转成 rollout layout，是否需要 reshard |
+| Logprob recompute | PPO/GRPO 更新时是否重新 forward，如何和 rollout 时的 old logprob 对齐 |
+
+Megatron-Core 和 FSDP2 的差别可以简单理解成：Megatron 是模型并行优先，FSDP 是参数分片优先。
+
+| 后端 | 核心思想 | 更适合 | 主要短板 |
+|---|---|---|---|
+| Megatron-Core | 把 transformer 层内部、层之间、expert、sequence 都显式切开 | 100B+ dense、MoE、大规模多机、需要 TP/PP/EP/CP 的训练 | 配置复杂，模型代码和并行策略绑定更深 |
+| FSDP2 | 每个 rank 只持有一片参数，需要时 all-gather，用完再释放 | 中小规模 dense model、PyTorch 原生训练、快速接入新模型 | PP/EP 能力弱，超大模型下通信和调度控制不如 Megatron 精细 |
+| DeepSpeed ZeRO-3 | 参数、梯度、optimizer state ZeRO 分片，可配合 offload | 显存紧张、需要 CPU/NVMe offload 的训练 | offload 容易牺牲吞吐，MoE/PP 大规模组合复杂 |
+
+大规模 Megatron 通常更快，原因不是“代码更底层”这么简单，而是它把通信模式设计进了模型结构。TP 把大矩阵乘切到多个 GPU 上，PP 把层切到不同 stage，EP 把 MoE expert 分布到不同 GPU，CP 把长序列 attention 的上下文维度切开。每个维度都有固定通信模式，Megatron 可以为它们安排 overlap、microbatch pipeline 和 fused kernels。
+
+FSDP 的抽象更通用：每层 forward 前 all-gather 参数，backward 后 reduce-scatter 梯度。这个模式很适合减少显存，也很容易接入 PyTorch 模型；但当模型已经需要 TP + PP + EP 时，单靠 FSDP 的参数分片会遇到三个问题：
+
+1. 单层矩阵本身太大，必须 tensor parallel，否则单卡 matmul 放不下或效率低。
+2. 层数太多，只做 data parallel 会让每个 rank 都经过完整网络，激活和通信压力都高。
+3. MoE expert 需要 token dispatch 和 expert parallel，普通 FSDP 不知道 expert routing 的系统结构。
+
+因此选择训练后端时可以用一句话判断：如果目标是快速把 7B/14B/32B dense model 跑起来，FSDP2 往往更省工程成本；如果目标是 100B+、MoE、长上下文、多机大规模吞吐，Megatron-Core 的并行控制力通常更重要。
+
 ### 4.2 设计轴 1：控制流（Single vs Multi-controller）
 
 **Single-controller**：一个中央进程编排所有数据流，把数据发到各 worker 执行。
@@ -217,6 +296,65 @@ $$
 **Multi-controller**：每个 worker 组（rollout workers / training workers）有自己的控制器，组间通过消息队列或 RPC 协作。
 - 优势：更好的扩展性，控制器不成为瓶颈
 - 劣势：数据流逻辑分散，难以全局优化
+
+控制流里流动的不只是“任务命令”。一个 RL step 至少有四类东西在系统里移动：
+
+| 流动对象 | 典型内容 | 谁生产 | 谁消费 |
+|---|---|---|---|
+| Control message | start rollout、stop、resume、train step、sync weights、checkpoint | Orchestrator / local controller | rollout worker、trainer、reward worker |
+| Rollout payload | prompt ids、response ids、attention mask、logprob、finish reason、tool trace | rollout engine | reward worker、advantage calculator、trainer |
+| Training metadata | reward、advantage、old logprob、token mask、policy version、sample weight | reward / advantage stage | trainer |
+| Weight update | actor weights、optimizer step id、weight version、reshard metadata | trainer | rollout engine |
+
+Single-controller 把这些对象都汇聚到一个中央 driver 里：
+
+```mermaid
+flowchart TD
+    C[Single Controller<br/>global state: step, policy version, queues]
+    R[Rollout Workers<br/>vLLM / SGLang]
+    W[Reward Workers<br/>RM / rule / sandbox]
+    A[Advantage<br/>GRPO / PPO stats]
+    T[Training Engine<br/>Megatron / FSDP]
+
+    C -- "control: generate(prompt_batch)" --> R
+    R -- "payload: tokens, logprobs, masks, tool traces" --> C
+    C -- "control: score(completions)" --> W
+    W -- "reward scores" --> C
+    C -- "batch: rewards + old_logprobs + masks" --> A
+    A -- "advantages" --> C
+    C -- "train_batch + policy_version" --> T
+    T -- "new weights + version" --> C
+    C -- "sync weights / reload" --> R
+```
+
+这种模式的好处是全局状态非常清楚：某个 sample 来自哪个 policy version、reward 有没有算完、是否已经进入 train batch，都能在中央 driver 里查到。坏处是 rollout payload 很大时，所有 tokens/logprobs/masks 都要经过 controller 或 object store，中心节点会被序列化、网络和对象引用管理拖慢。
+
+Multi-controller 把大对象尽量留在本地，只在组件之间交换状态和引用：
+
+```mermaid
+flowchart LR
+    OC[Global Orchestrator<br/>policy version + high-level schedule]
+    RC[Rollout Controller]
+    TC[Training Controller]
+    WC[Reward / Sandbox Controller]
+    R[Rollout Worker Pool]
+    T[Trainer Ranks]
+    W[Reward / Tool Workers]
+    Q[(Queue / Object Store)]
+
+    OC -- "target version, quotas, stop/resume" --> RC
+    OC -- "train schedule, checkpoint policy" --> TC
+    RC -- "local control" --> R
+    R -- "completion refs + metadata" --> Q
+    WC -- "pull completion refs" --> Q
+    WC -- "reward refs" --> Q
+    TC -- "pull train batch refs" --> Q
+    TC -- "SPMD train step" --> T
+    T -- "weight shards / version" --> Q
+    RC -- "load latest allowed version" --> Q
+```
+
+这里的关键变化是：全局 Orchestrator 不再亲自搬所有 token tensor，而是维护 policy version、quota、队列水位、失败重试和高层 schedule。Rollout Controller 本地决定怎样 batch、怎样 abort、怎样 resume；Training Controller 本地决定 microbatch、pipeline schedule、gradient accumulation；Reward/Sandbox Controller 本地处理工具调用和规则评分。系统吞吐更好，但一致性更难：如果某个 sample 的 reward 已经算完，而对应 policy version 已被淘汰，trainer 要决定是丢弃、降权还是用 staleness correction。
 
 veRL 的 **HybridFlow** 是这两种模式的混合：用 single-controller 表达高层数据流（「先 rollout，再 compute advantages，再 train」），用 multi-controller（每个 worker 组的 SPMD 进程）执行实际的算子计算。
 
