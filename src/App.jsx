@@ -196,6 +196,12 @@ const leetcodeNoteDefinitions = [
     null,
     { directory: 'Leetcode', category: 'Math & Probability', difficulty: 'Medium' },
   ),
+  createTutorialDefinition(
+    'Core Skills 23 · Greedy Algorithms',
+    'CoreSkills23 Greedy Algorithms.md',
+    null,
+    { directory: 'Leetcode', category: 'Greedy', difficulty: 'Medium' },
+  ),
 ];
 
 const leetcodeNotes = leetcodeNoteDefinitions.map((definition) => ({
@@ -1024,7 +1030,108 @@ function MarkdownPre({ children, ...props }) {
     return <QuizBlock source={extractPlainText(child.props.children).replace(/\n$/, '')} />;
   }
 
-  return <pre {...props}>{children}</pre>;
+  return <CodeBlock className={className} source={extractPlainText(child?.props?.children)} {...props} />;
+}
+
+function CodeBlock({ className = '', source = '' }) {
+  const [copied, setCopied] = useState(false);
+  const language = className.match(/language-([\w-]+)/)?.[1] ?? 'text';
+  const label = formatCodeLanguage(language);
+  const code = source.replace(/\n$/, '');
+
+  const copyCode = async () => {
+    if (!navigator?.clipboard) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(code);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1400);
+  };
+
+  return (
+    <figure className="code-frame">
+      <figcaption className="code-frame-header">
+        <span>{label}</span>
+        <button type="button" onClick={copyCode}>
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </figcaption>
+      <pre>
+        <code className={className}>
+          <HighlightedCode code={code} language={language} />
+        </code>
+      </pre>
+    </figure>
+  );
+}
+
+function HighlightedCode({ code, language }) {
+  const tokens = tokenizeCode(code, language);
+  return tokens.map((token, index) => (
+    token.type === 'text'
+      ? <Fragment key={index}>{token.value}</Fragment>
+      : <span className={`code-token ${token.type}`} key={index}>{token.value}</span>
+  ));
+}
+
+function formatCodeLanguage(language) {
+  const labels = {
+    js: 'JavaScript',
+    jsx: 'React JSX',
+    py: 'Python',
+    python: 'Python',
+    text: 'Text',
+  };
+
+  return labels[language] ?? language.toUpperCase();
+}
+
+function tokenizeCode(code, language) {
+  if (!['py', 'python', 'js', 'jsx'].includes(language)) {
+    return [{ type: 'text', value: code }];
+  }
+
+  const keywordPattern = language === 'python'
+    || language === 'py'
+    ? 'False|None|True|and|as|break|class|continue|def|elif|else|for|from|if|import|in|is|not|or|return|while|with'
+    : 'const|let|var|function|return|if|else|for|while|import|from|export|class|new|true|false|null|undefined|await|async';
+  const builtinPattern = language === 'python' || language === 'py'
+    ? 'Counter|List|bool|dict|enumerate|heapify|heappop|int|len|list|max|min|range|set|sorted|sum'
+    : 'Array|Boolean|Map|Math|Number|Object|Promise|Set|String|console';
+  const tokenPattern = new RegExp(
+    `(#.*|//.*|"""[\\s\\S]*?"""|'''[\\s\\S]*?'''|"(?:\\\\.|[^"\\\\])*"|'(?:\\\\.|[^'\\\\])*'|\\b(?:${keywordPattern})\\b|\\b(?:${builtinPattern})\\b|\\b\\d+(?:\\.\\d+)?\\b)`,
+    'g',
+  );
+
+  const tokens = [];
+  let cursor = 0;
+  for (const match of code.matchAll(tokenPattern)) {
+    if (match.index > cursor) {
+      tokens.push({ type: 'text', value: code.slice(cursor, match.index) });
+    }
+
+    const value = match[0];
+    let type = 'number';
+    if (value.startsWith('#') || value.startsWith('//')) {
+      type = 'comment';
+    } else if (value.startsWith('"') || value.startsWith("'")) {
+      type = 'string';
+    } else if (new RegExp(`^(?:${keywordPattern})$`).test(value)) {
+      type = 'keyword';
+    } else if (new RegExp(`^(?:${builtinPattern})$`).test(value)) {
+      type = 'builtin';
+    }
+
+    tokens.push({ type, value });
+    cursor = match.index + value.length;
+  }
+
+  if (cursor < code.length) {
+    tokens.push({ type: 'text', value: code.slice(cursor) });
+  }
+
+  return tokens;
 }
 
 function parseHashRoute(rawHash) {

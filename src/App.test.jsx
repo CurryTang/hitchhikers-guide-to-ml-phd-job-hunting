@@ -23,6 +23,11 @@ describe('App', () => {
         'C. Browser runtime',
         'explanation: Blocks are assigned to streaming multiprocessors.',
         '```',
+        '',
+        '```python',
+        'def can_jump(nums):',
+        '    return True',
+        '```',
       ].join('\n');
 
       return {
@@ -85,6 +90,16 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /hide/i }));
 
     expect(screen.queryByText(/CUDA thread blocks/)).not.toBeInTheDocument();
+  });
+
+  it('renders enhanced code blocks with language labels', async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /start mlsys/i }));
+
+    expect(await screen.findByText('Python')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument();
+    expect(screen.getByText('def')).toHaveClass('code-token', 'keyword');
   });
 
   it('opens the LeetCode section from the top navigation', async () => {
