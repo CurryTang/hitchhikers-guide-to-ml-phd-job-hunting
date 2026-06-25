@@ -14,6 +14,8 @@
 5. [[#五、框架巡礼：两次范式转移]]
 6. [[#六、专题深入]]
 7. [[#七、选型决策树与展望]]
+8. [[#八、代码级框架精读：slime、SkyRL 与 Sandbox]]
+9. [[#九、可以继续做的方向]]
 
 ---
 
@@ -705,11 +707,648 @@ Agentic RL，工具调用 + 多轮对话 + 自定义 scaffold
 
 ---
 
+## 八、代码级框架精读：slime、SkyRL 与 Sandbox
+
+前面讲的是抽象设计轴：同步/异步、colocate/disaggregate、训练后端、rollout 后端、权重同步。真正写系统时，面试官通常会继续问：
+
+```text
+你说这个框架支持 agentic RL，那一条 trajectory 到底怎么从 sandbox 变成 loss？
+你说 fully async，那 buffer、staleness、weight sync 在代码里谁负责？
+你说 slime 和 SkyRL 都能做 RL infra，它们的边界有什么不同？
+```
+
+这一章按代码路径讲。目标不是背 API，而是能画出一条真实数据流。
+
+### 8.1 slime 的设计：Megatron + SGLang + Data Buffer
+
+slime 的路线很明确：它不是一个“大而全”的 agent 框架，而是把 Megatron 训练、SGLang rollout、Data Buffer 和自定义 generation/reward hook 串成一个高性能 RL substrate。
+
+核心路径可以这样记：
+
+```text
+Prompt data
+  -> Data Buffer
+  -> SGLang rollout / custom_generate
+  -> reward / verifier / env feedback
+  -> Data Buffer stores Sample
+  -> Megatron computes logprob / advantage / loss
+  -> weight sync back to SGLang
+```
+
+slime 的关键工程判断是：
+
+| 设计点 | slime 的选择 | 为什么 |
+|---|---|---|
+| 训练后端 | Megatron | 大模型、MoE、TP/PP/CP/EP 组合更成熟 |
+| rollout 后端 | SGLang | 专注一个 backend，直接吃 SGLang router、prefix cache、PD disaggregation、spec decoding 等能力 |
+| 扩展点 | function path hooks | agent/RAG/sandbox 不改训练核，只改生成和奖励 |
+| 数据单位 | `Sample` / rollout group | 便于把一条 agent trajectory 拆成多个 trainable segments |
+| 权重同步 | NCCL / disk full / disk delta | colocated、跨集群、跨硬件都有对应路径 |
+
+最重要的不是“slime 支持 agent”，而是它把 agent 放在 `custom_generate` 这个边界外面：
+
+```python
+async def custom_generate(args, sample, sampling_params):
+    # 1. Run agent loop / tool calls / sandbox
+    # 2. Capture token ids, loss mask, reward
+    # 3. Return one Sample or multiple Samples
+    return sample_or_segments
+```
+
+这意味着 slime 的核心训练代码不需要理解 SWE-Bench、Search-R1、Tau-Bench 或 browser task。它只要求你最后交回可训练的 token 轨迹：
+
+```text
+tokens
+loss_mask
+rollout_logprobs
+reward
+rollout_id / session_id
+metadata
+```
+
+这就是 slime 能支持很多 agentic 形态的原因：复杂性被放在 generation adapter / sandbox / verifier，而不是塞进 Megatron 训练 loop。
+
+### 8.2 slime 的 Agentic RL：custom_generate 不是“文本生成函数”
+
+slime 文档里 `--custom-generate-function-path` 的签名看起来很简单：
+
+```python
+async def custom_generate(args, sample, sampling_params):
+    ...
+```
+
+但在 agentic RL 里，它实际上是一整个 rollout orchestrator。以 coding-agent RL 示例为例，真实流程是：
+
+```text
+base_sample
+  -> boot sandbox
+  -> prepare workspace
+  -> start agent harness (Claude Code / Codex / custom CLI)
+  -> agent calls model through adapter
+  -> adapter records exact token ids and logprobs from SGLang
+  -> agent edits repo / runs commands
+  -> capture git diff
+  -> evaluate diff in a fresh sandbox
+  -> adapter.finish_session(...)
+  -> return one or more trainable Samples
+```
+
+注意这里的两个 sandbox：
+
+```text
+Sandbox A: agent writes code, may run exploratory commands
+Sandbox B: clean grading environment, applies diff and runs tests
+```
+
+这解决了一个很实际的问题：如果 agent 在同一个环境里先看测试、改测试、留下缓存，再被同一个环境评测，reward 就不可信。干净评测 sandbox 是防止 test cheating 和环境污染的基础设计。
+
+slime 的 coding-agent 示例把这条链路拆成三层：
+
+| 层 | 责任 |
+|---|---|
+| `sandbox` | `exec / write_file / read_file / close`，隐藏 E2B/Docker/VM 差异 |
+| `harness` | 安装和运行 agent CLI，比如 Claude Code、Codex、OpenCode |
+| `adapter` | 把 agent 的 Anthropic/OpenAI 请求转成 SGLang generate，并记录 token 级 provenance |
+
+这三个层次非常重要，因为 agentic RL 最容易犯的错是把“字符串对话记录”当成训练目标。正确做法是：
+
+```text
+string/message history is only an interface
+sampled token ids are the training target
+```
+
+也就是说，训练时不能把最终 conversation string 重新 tokenize 当作 response。必须使用 rollout 时模型实际采样出来的 `output_ids`，并且只有这些 token 的 `loss_mask=1`。
+
+### 8.3 String-in, Token-out：agent 轨迹为什么难训
+
+工具调用 agent 的输入输出天然是字符串：
+
+```text
+assistant: use tool
+tool: stdout / file diff / browser result
+assistant: next action
+tool: next observation
+...
+```
+
+但 RL loss 是 token 级的：
+
+$$
+\mathcal{L} = -\sum_t \hat{A}_t \log \pi_\theta(a_t | s_t)
+$$
+
+所以每个 token 必须回答两个问题：
+
+```text
+1. 这个 token 是模型采样出来的吗？
+2. 这个 token 对应的 rollout logprob 是多少？
+```
+
+工具 observation、系统模板、用户消息、环境反馈都不是模型动作，不能训练：
+
+| token 来源 | loss mask |
+|---|---|
+| model output / action | 1 |
+| user prompt | 0 |
+| tool observation | 0 |
+| sandbox stdout/stderr | 0 |
+| chat template token | 0 |
+| compacted context / re-rendered prefix | 0，除非能证明 token provenance |
+
+slime coding-agent 示例里有一个关键 guard：如果后续 prompt 和之前保存的 sampled output 在 token 层面对不上，就保留上下文用于继续 agent，但不对无法证明 provenance 的 token 回传梯度。这是 agentic RL 的 correctness 核心。
+
+面试里可以这样概括：
+
+> Agent 轨迹可以是 string-in，但训练目标必须是 token-out。任何从字符串重新 tokenize 恢复出来的“模型输出”都不可靠，因为 tokenizer、chat template、tool observation、compaction 都可能改变 token 边界。
+
+### 8.4 SkyRL 的设计：GeneratorInterface 是系统边界
+
+SkyRL 走的是另一条路线：它把环境抽象做得更显式。核心接口是 `GeneratorInterface`：
+
+```python
+class GeneratorInterface:
+    async def generate(self, input_batch) -> GeneratorOutput:
+        ...
+```
+
+`GeneratorOutput` 里不只是 response：
+
+```python
+{
+    "prompt_token_ids": ...,
+    "response_ids": ...,
+    "rewards": ...,
+    "loss_masks": ...,
+    "rollout_logprobs": ...,
+    "trajectory_ids": ...,
+    "trajectory_generation_times": ...,
+    "rollout_expert_indices": ...,
+}
+```
+
+这说明 SkyRL 的训练 loop 不关心你是单轮 GSM8K、多轮 SQL、LiveCodeBench，还是一个复杂 agent。只要 generator 最后返回这些字段，trainer 就能做 PPO/GRPO/DAPO 等算法。
+
+对应的数据流是：
+
+```text
+RayPPOTrainer
+  -> prepare_generator_input(...)
+  -> generator.generate(...)
+  -> validate_generator_output(...)
+  -> fwd_logprobs_values_reward(...)
+  -> train_critic_and_policy(...)
+  -> dispatch.save_weights_for_sampler()
+```
+
+其中最值得讲透的是 `SkyRLGymGenerator.agent_loop()`。
+
+### 8.5 SkyRLGymGenerator.agent_loop：一条 trajectory 怎么生成
+
+SkyRL-Gym 约定每个 environment 有三个基本方法：
+
+```python
+env.init(prompt) -> first_observation
+env.step(action) -> {observations, reward, done, metadata}
+env.close()
+```
+
+`SkyRLGymGenerator.agent_loop()` 的主循环可以简化成：
+
+```python
+while not done:
+    engine_input = {
+        "prompt_token_ids": [current_input_ids],
+        "session_ids": [trajectory_id],
+        "sampling_params": sampling_params,
+    }
+    engine_output = await inference_engine_client.generate(engine_input)
+
+    action_text = engine_output["responses"][0]
+    action_ids = engine_output["response_ids"][0]
+    action_logprobs = engine_output.get("response_logprobs")
+
+    step_output = env.step(action_text)
+    observation_ids = tokenize_observation(step_output["observations"])
+
+    append action_ids with loss_mask=1
+    append observation_ids with loss_mask=0
+    append reward at turn boundary
+```
+
+这段代码把 agentic RL 最核心的 token accounting 讲清楚了：
+
+```text
+input_ids_next = input_ids_prev + model_action_tokens + env_observation_tokens
+loss_mask_next = loss_mask_prev + [1 ... 1]       + [0 ... 0]
+reward_next    = reward placed at response boundary
+```
+
+如果是 step-wise training，SkyRL 会把每个 turn 作为一个 `TrajectoryOutput`，方便做更细粒度的 credit assignment。否则，它会把整条多轮 trajectory 合成一个 response 序列，reward 可以是最后一个 token 的 outcome reward，也可以是 per-step reward list。
+
+这就是为什么 SkyRL 的 env 抽象比“写一个 reward function”强：环境不仅给 reward，还决定 observation 如何回到下一轮 prompt，最终影响 loss mask 和 credit assignment。
+
+### 8.6 SkyRL 的 inference 架构：data plane / control plane 分离
+
+SkyRL 新 inference path 把请求分成两类：
+
+```text
+Data plane:
+  /v1/chat/completions
+  /v1/completions
+  generate / tokenize / detokenize
+  -> 走 router / proxy_url
+
+Control plane:
+  pause / resume
+  sleep / wake_up
+  start_weight_update / update_weights / finish_weight_update
+  -> fan-out 到每个 backend server
+```
+
+图示：
+
+```text
+                  Trainer
+                     │
+                     ▼
+          RemoteInferenceClient
+             │              │
+             │ data plane   │ control plane
+             ▼              ▼
+          VLLMRouter     vLLM API servers
+             │              ▲
+             └──────────────┘
+```
+
+这个拆分背后的理由很具体：
+
+| 请求 | 为什么这样走 |
+|---|---|
+| generation | 需要 load balancing，且多轮 trajectory 需要 session stickiness |
+| pause/resume | 必须让所有 backend 一起停/起 |
+| weight sync | 必须 fan-out 更新每个 replica |
+| sleep/wake_up | colocated 模式要释放/恢复显存 |
+
+SkyRL generator 会给每条 trajectory 一个稳定 `session_id`。vLLM router 使用 consistent hash，把同一个 session 的多轮请求固定到同一个 backend。这样做的收益是 prefix cache：
+
+```text
+turn 1: prompt + action + observation
+turn 2: same prefix + new action
+turn 3: same prefix + more observation
+```
+
+如果每个 turn 被随机路由到不同 backend，prefix cache 命中率会掉，agentic rollout 的吞吐会很差。这个点是 agent serving 和普通 single-turn serving 的关键区别。
+
+### 8.7 SkyRL fully async：按源码讲五个组件
+
+SkyRL 的 fully async trainer 是 `FullyAsyncRayPPOTrainer`，继承同步的 `RayPPOTrainer`。它不是“开一个 async flag”这么简单，而是新增了五个控制组件：
+
+| 组件 | 源码角色 | 责任 |
+|---|---|---|
+| `GenerationWorker` | `asyncio.Task` | 从 dataloader 拿一个 prompt group，调用 `generator.generate()` |
+| `TrainingWorker` | trainer 主线程 | 从 buffer 取 mini-batch，训练 policy，触发 weight sync |
+| `GenerationOutputGroupBuffer` | `asyncio.Queue` | 存已经完成的 rollout group |
+| `AsyncDataloader` | `_AsyncDataloader` | 多 worker 并发取样、记录 consumed UID、支持 checkpoint resume |
+| `AsyncStalenessManager` | `_AsyncStalenessManager` | 控制 generation 不要跑得比 training 太超前 |
+
+真实 loop 可以压缩成：
+
+```python
+for epoch in epochs:
+    buffer = asyncio.Queue(maxsize=B * (S + 1))
+
+    generator_tasks = [
+        create_task(run_generate_loop(buffer))
+        for _ in range(num_parallel_generation_workers)
+    ]
+
+    for step in training_steps:
+        groups = await collect_B_groups(buffer)
+        training_input = convert(groups)
+        status = await run_training(training_input)
+        mark_consumed(groups)
+
+        await dispatch.save_weights_for_sampler()
+        await staleness_manager.notify_capacity_change(global_step + 1)
+```
+
+这里 `B = policy_mini_batch_size`，`S = max_staleness_steps`。
+
+最关键的是 staleness capacity：
+
+$$
+\text{capacity} = (S + \text{current\_global\_step}) \times B
+$$
+
+生成侧要满足：
+
+$$
+\text{accepted} + \text{running} \le \text{capacity}
+$$
+
+含义是：
+
+- `accepted`：已经生成完、可能还没训练的 group
+- `running`：正在生成的 group
+- `current_global_step`：当前训练到的模型版本
+- `S`：允许 generation 最多领先 training 多少步
+
+生成 worker 在开始一个新 group 前调用 `acquire_submission_slot()`；如果 buffer 和 running 已经太多，就阻塞。训练 step 完成后，`notify_capacity_change()` 增加容量，释放被阻塞的 generation worker。
+
+这不是严格的 per-sample staleness 保证。极端长尾 trajectory 可能跑了很久才结束，实际版本差超过 `S`。SkyRL 当前选择接受它并记录 warning，而不是直接丢弃。这是一个很现实的系统取舍：
+
+```text
+drop stale sample -> 更 on-policy，但浪费长尾 rollout 成本
+keep stale sample -> 吞吐更高，但需要 IS / clip 控制 off-policy bias
+```
+
+### 8.8 SkyRL 的 in-flight weight update
+
+fully async 的关键不是“训练和生成并行”，而是训练后如何更新还在生成中的 inference engines。
+
+SkyRL 在每个 training step 后调用：
+
+```python
+await self.dispatch.save_weights_for_sampler()
+```
+
+底层分两种情况：
+
+**Non-colocated：NCCL broadcast**
+
+```text
+trainer step done
+  -> client.pause(mode="keep")
+  -> NCCL broadcast weights to vLLM workers
+  -> client.resume()
+  -> frozen requests continue
+```
+
+`pause(mode="keep")` 的意义是：不 abort 正在 decode 的请求，而是把它们冻结在 scheduler 里，KV cache 保留，resume 后继续跑。这个设计吞吐好，但要承担一个细节：继续 decode 的 trajectory 前半段来自旧权重，后半段来自新权重，所以训练必须记录 policy version / rollout logprobs / staleness，否则算法上说不清。
+
+**Colocated：CUDA IPC**
+
+```text
+trainer and inference share GPUs
+  -> inference sleep / release memory
+  -> training runs
+  -> pack updated weights into CUDA buffers
+  -> send CUDA IPC handles
+  -> inference wake_up and load weights
+```
+
+CUDA IPC 适合同机/同 GPU colocate；NCCL broadcast 适合 training 和 inference 分开的 GPU group。
+
+### 8.9 slime vs SkyRL：不是谁替代谁
+
+把两个框架放在同一张图里：
+
+| 维度 | slime | SkyRL |
+|---|---|---|
+| 核心路线 | Megatron + SGLang native RL scaling | Modular full-stack RL + Gym/Agent/Tinker/backends |
+| agent 接入 | `custom_generate` / `rollout_function` | `GeneratorInterface` / `SkyRLGymGenerator` / SkyRL-Agent |
+| inference backend | 深度绑定 SGLang | vLLM HTTP path 为主，也支持不同 backend |
+| 权重同步 | NCCL/disk/full/delta，强调跨集群外部 engine | broadcast / CUDA IPC，强调 data/control plane 与 in-flight update |
+| 环境抽象 | sandbox/harness/adapter 作为示例和库 | `skyrl-gym` 明确 Env API |
+| 适合场景 | 大模型 Megatron 路线、SGLang-heavy、GLM/DeepSeek 类 scale | 研究快速迭代、多 backend、agent/env 模块化 |
+
+面试回答可以这样说：
+
+> slime 更像一个高性能 RL kernel：训练和 rollout 路线更固定，但能把 Megatron/SGLang 的能力吃深。SkyRL 更像一个模块化 RL OS：trainer、generator、gym env、agent dispatcher、inference client、Tinker backend 都是可替换模块。
+
+### 8.10 Sandbox 设计：安全、可复现、可扩展
+
+Agentic RL 的 sandbox 不是“跑代码的地方”这么简单，它同时承担四个责任：
+
+| 责任 | 具体问题 |
+|---|---|
+| 隔离 | 不可信代码不能污染宿主机、其他样本、训练进程 |
+| 可复现 | 同一个 sample 的初始文件系统、依赖、测试环境必须固定 |
+| 可观测 | stdout/stderr、diff、工具调用、超时、资源使用必须能记录 |
+| 可扩展 | 几千个 rollout 并发启动，不能因为 boot 长尾拖死训练 |
+
+一个推荐的 sandbox 生命周期：
+
+```text
+1. boot(image, metadata)
+2. prepare_workspace(problem_statement, repo, pre_commands)
+3. run_agent(adapter_url, time_budget)
+4. capture_artifacts(diff, logs, trajectories)
+5. close_dirty_sandbox
+6. boot_clean_sandbox
+7. apply_diff
+8. run_tests / verifier
+9. return reward + diagnostics
+```
+
+为什么要分 dirty sandbox 和 clean sandbox？
+
+```text
+dirty sandbox:
+  agent 可以探索、运行命令、修改文件、产生缓存
+
+clean sandbox:
+  只应用最终 diff，再跑评测
+```
+
+这能防止三类 reward hacking：
+
+1. 修改测试文件让测试通过
+2. 在 workspace 留下缓存/状态，让评测非真实通过
+3. 通过网络或环境变量读取答案
+
+真正上线时还要加这些限制：
+
+| 控制项 | 推荐策略 |
+|---|---|
+| CPU / memory | cgroup / container limit / per-process timeout |
+| network | 默认禁用或 allowlist |
+| filesystem | per-episode writable layer，结束即丢弃 |
+| secrets | sandbox 内不注入训练集答案、host token、cloud key |
+| tool timeout | 每个 tool call 和整个 episode 都要有 wall-clock guard |
+| artifact | 保存 patch、日志、reward breakdown，便于 debug |
+
+slime coding-agent 示例里有一个很实用的并发控制：sandbox boot 用 semaphore 限制并发，避免同时启动太多环境导致 SSL/h2/镜像拉取长尾。SkyRL fully async 则从 trainer 侧控制 generation worker 数和 staleness。这两个控制层可以一起用：
+
+```text
+trainer capacity control
+  controls how far rollout can run ahead of training
+
+sandbox boot semaphore
+  controls external environment pressure
+```
+
+这就是 agentic RL 比普通 RLVR 难的地方：瓶颈不只在 GPU，还在 sandbox、文件系统、测试器、网络、外部工具和长尾任务。
+
+---
+
+## 九、可以继续做的方向
+
+这一节不是“未来展望”的空话，而是可以真正做成系统论文、开源 PR 或实习项目的方向。
+
+### 9.1 方向一：Token Provenance Debugger
+
+问题：agentic RL 最容易出现“字符串看起来对，token 训练目标错了”。工具 observation、sub-agent、context compaction、chat template 变化都会打断 token provenance。
+
+可以做：
+
+```text
+给每个 token 打来源标签：
+  MODEL_OUTPUT
+  USER_PROMPT
+  TOOL_OBSERVATION
+  TEMPLATE
+  COMPACTION
+  RETOKENIZED_UNTRUSTED
+
+训练前可视化一条 trajectory：
+  token id / text span / loss_mask / reward / rollout_logprob / source
+```
+
+价值：
+
+- 快速发现错误 loss mask
+- Debug reward 没涨但 loss 正常下降的问题
+- 给 SkyRL/slime/veRL 都能复用
+
+### 9.2 方向二：Sandbox Pool + Warm Reset
+
+问题：每条 trajectory 都从零 boot sandbox，长尾很严重；但复用 sandbox 又会污染状态。
+
+可以做：
+
+```text
+warm image pool
+  -> pre-boot N 个空 sandbox
+  -> 每个 episode 用 overlay layer
+  -> done 后 reset writable layer
+  -> clean verifier sandbox 独立保留
+```
+
+关键难点：
+
+- 文件系统 snapshot / rollback
+- 网络隔离
+- per-sample dependency 安装如何缓存
+- 如何证明 reset 后无污染
+
+### 9.3 方向三：Staleness-Aware Sampling
+
+SkyRL 当前 staleness manager 是 aggregate capacity bound，不是 per-sample hard bound。长尾 group 可能实际很 stale。
+
+可以做：
+
+```text
+if group_staleness <= S:
+    use normally
+elif reward is high and IS ratio stable:
+    use with smaller weight
+else:
+    drop / resample / distill only
+```
+
+训练 loss 可以改成：
+
+$$
+w_i = \exp(-\lambda \cdot \text{staleness}_i)
+$$
+
+或者让 clip range 随 staleness 变窄：
+
+$$
+\epsilon_i = \frac{\epsilon_0}{1 + \alpha \cdot \text{staleness}_i}
+$$
+
+这和 CISPO / off-policy correction 是同一方向，但可以在真实 agent workload 上验证。
+
+### 9.4 方向四：MoE Router Replay
+
+MoE RL 最大的坑是 rollout 侧和 training 侧 router 不一致。SkyRL 的 `GeneratorOutput` 已经预留了 `rollout_expert_indices` 字段，这说明系统已经意识到 routing provenance 的重要性。
+
+可以做：
+
+```text
+rollout:
+  return expert_indices[token][layer][topk]
+
+training:
+  force/replay the same expert route
+  compute logprob under matched routing
+```
+
+难点：
+
+- Megatron MoE forward 是否支持 externally supplied routing
+- routing replay 与 expert parallel all-to-all 的结合
+- shared experts / fine-grained experts 的格式标准化
+
+如果做出来，价值非常大：它直接解决 MoE train-inference mismatch。
+
+### 9.5 方向五：Rollout-as-a-Service
+
+slime external rollout engines、SkyRL RemoteInferenceClient、ProRL Agent 这类设计都指向同一个趋势：
+
+```text
+training cluster
+  only owns optimizer / gradients / checkpoint
+
+rollout service
+  owns inference / agent execution / sandbox / verifier
+
+weight sync channel
+  connects them
+```
+
+可以做的系统：
+
+- rollout service 暴露统一 API：`submit_task / get_trajectory / sync_weights / health`
+- 支持不同任务：math verifier、SWE sandbox、browser task、SQL env
+- 支持不同 backend：SGLang、vLLM、TensorRT-LLM
+- 支持 delta weight update 和版本追踪
+
+这会让 agent 团队和 infra 团队解耦：agent harness 不需要嵌进训练框架，训练框架也不需要理解每种环境。
+
+### 9.6 方向六：可观测性与失败归因
+
+RL infra 的失败经常不是 crash，而是“reward 不涨”。需要能回答：
+
+```text
+rollout 慢在哪里？
+reward 为 0 是模型错、verifier 错、sandbox 错，还是 token mask 错？
+staleness 分布是什么？
+weight sync 时间占比多少？
+哪些 env 最常 timeout？
+哪些 prompt 最常产生 zero-variance group？
+```
+
+建议默认记录：
+
+| 指标 | 用途 |
+|---|---|
+| `rollout/e2e_time` | 找长尾任务 |
+| `rollout/tool_time` | 找 sandbox/tool 瓶颈 |
+| `rollout/num_turns` | 判断是否进入无限循环 |
+| `train/staleness` | 判断 off-policy 风险 |
+| `train/logprob_diff` | 判断 train-inference mismatch |
+| `reward/breakdown` | 判断 reward hacking 或 verifier 问题 |
+| `sync/weight_update_time` | 判断同步是否吞吐瓶颈 |
+
+这类 observability 工作看起来不“算法”，但在工业 RL 里价值很高。
+
+---
+
 ## 参考资料
 
 - [HybridFlow: veRL 论文](https://arxiv.org/abs/2409.19256)
 - [AReaL 论文](https://arxiv.org/abs/2505.24298)
 - [slime 文档](https://thudm.github.io/slime/)（LMSYS Blog: [slime: An SGLang-Native Post-Training Framework](https://www.lmsys.org/blog/2025-07-09-slime/)）
+- [slime GitHub](https://github.com/THUDM/slime)
+- [SkyRL GitHub](https://github.com/novasky-ai/skyrl)
+- [SkyRL-Agent paper](https://arxiv.org/abs/2511.16108)
+- [SkyRL fully async training docs](https://docs.skyrl.ai/docs/tutorials/fully_async)
+- [SkyRL inference architecture docs](https://docs.skyrl.ai/docs/getting-started/inference_architecture)
+- [SkyRL-Agent project page](https://sky.cs.berkeley.edu/project/skyrl/)
+- [ProRL Agent: Rollout-as-a-Service for RL Training of Multi-Turn LLM Agents](https://arxiv.org/html/2603.18815v1)
 - [Forge: MiniMax RL 框架](https://huggingface.co/blog/MiniMax-AI/forge-scalable-agent-rl-framework-and-algorithm)
 - [Keep the Tokens Flowing: 16 开源 RL 框架对比](https://huggingface.co/blog/async-rl-training-landscape)
 - [Anatomy of RL Frameworks](https://www.hanifleo.com/anatomy-of-rl-frameworks/)

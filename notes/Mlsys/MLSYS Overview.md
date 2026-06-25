@@ -15,7 +15,7 @@
 3. [Kernel 优化](#kernel-优化)
 4. [训练与推理系统](#训练与推理系统)
 5. [精度与量化](#精度与量化)
-6. [LLM Post-training / RL Infra 去哪里了](#llm-post-training--rl-infra-去哪里了)
+6. [LLM八股 去哪里了](#llm八股-去哪里了)
 
 ## 学习主线
 
@@ -172,9 +172,9 @@ Compute-bound 的入口，通常从 GEMM / matmul 思路开始。
 - KV cache quantization
 - low precision training 的稳定性问题
 
-## LLM Post-training / RL Infra 去哪里了
+## LLM八股 去哪里了
 
-Post-training 和 RL Infra 已经从 MLSYS 主线里拆出去，放到与 `MLSYS`、`LeetCode` 并行的新板块：
+Post-training、RL Infra、推理加速、MoE 系统已经从 MLSYS 主线里拆出去，放到与 `MLSYS`、`LeetCode` 并行的新板块：
 
 ```text
 LLM八股
@@ -183,13 +183,15 @@ LLM八股
 入口：
 
 - [打开 LLM八股板块](#llm)
-- [[MLSYS14 Post-Training Infra|LLM八股 1 · Post-Training Infra]]
-- [[MLSYS15 RL Infra 自测 35 问|LLM八股 2 · RL Infra 自测 35 问]]
+- [[MLSYS14 Post-Training Infra|LLM八股 14 · Post-Training Infra]]
+- [[MLSYS15 LLM Inference Speculative Decoding DFlash|LLM八股 15 · Inference：Speculative Decoding 到 DFlash]]
+- [[MLSYS16 Modern MoE SonicMoE|LLM八股 16 · Modern MoE：SonicMoE]]
+- [[MLSYS15 RL Infra 自测 35 问|LLM八股 附录 · RL Infra 自测 35 问]]
 
 这样拆分后：
 
 ```text
 MLSYS = GPU / kernel / training / inference / precision
-LLM八股 = post-training / RL infra / framework comparison
+LLM八股 = post-training / RL infra / inference acceleration / MoE systems
 LeetCode = data structure & algorithm patterns
 ```

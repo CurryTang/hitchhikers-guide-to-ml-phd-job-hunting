@@ -217,12 +217,22 @@ const leetcodeNotes = leetcodeNoteDefinitions.map((definition) => ({
 
 const llmNoteDefinitions = [
   createTutorialDefinition(
-    'LLM八股 1 · Post-Training Infra：从 TRL 到 Forge',
+    'LLM八股 14 · Post-Training Infra：从 TRL 到 Forge',
     'MLSYS14 Post-Training Infra.md',
     'MLSYS14 Post-Training Infra.en.md',
   ),
   createTutorialDefinition(
-    'LLM八股 2 · RL Infra 自测 35 问',
+    'LLM八股 15 · Inference：Speculative Decoding 到 DFlash',
+    'MLSYS15 LLM Inference Speculative Decoding DFlash.md',
+    null,
+  ),
+  createTutorialDefinition(
+    'LLM八股 16 · Modern MoE：SonicMoE 深入解析',
+    'MLSYS16 Modern MoE SonicMoE.md',
+    null,
+  ),
+  createTutorialDefinition(
+    'LLM八股 附录 · RL Infra 自测 35 问',
     'MLSYS15 RL Infra 自测 35 问.md',
     'MLSYS15 RL Infra 自测 35 问.en.md',
   ),
@@ -1708,7 +1718,7 @@ function tokenizeCode(code, language) {
 }
 
 function parseHashRoute(rawHash) {
-  const hashValue = decodeURIComponent(String(rawHash ?? '').replace(/^#/, ''));
+  const hashValue = decodeURIComponent(String(rawHash ?? '').replace(/^#/, '')).replace(/^\/+/, '');
 
   if (!hashValue || hashValue === 'home') {
     return { view: 'home', noteId: null, sectionId: null };
@@ -2136,9 +2146,12 @@ function App() {
               {sectionHeadings.length > 0 && (
                 <aside className="section-toc" aria-label="Section navigation">
                   <div className="section-toc-inner">
-                    <p className="eyebrow">Sections</p>
+                    <div className="section-toc-heading">
+                      <p className="eyebrow">Sections</p>
+                      <span>{sectionHeadings.length}</span>
+                    </div>
                     <nav>
-                      {sectionHeadings.slice(0, 18).map((heading, index) => (
+                      {sectionHeadings.map((heading, index) => (
                         <a
                           className={`toc-link level-${heading.level}`}
                           href={`#${heading.id}`}
