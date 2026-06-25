@@ -16,9 +16,15 @@
 body {
   margin: 0;
   min-width: 320px;
+  width: 100%;
   color: #102735;
 }
 
+html {
+  width: 100%;
+}
+
 #root {
+  width: 100%;
   min-height: 100vh;
 }

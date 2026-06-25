@@ -1,5 +1,15 @@
 ## Q1 基础环境搭建与hello world kernel
 
+```quiz
+title: 练习题
+question: 在 PyTorch JIT 编译 CUDA 扩展时，包含 `<<<>>>` kernel launch 语法的代码应该放在哪里？
+answer: B
+A. cpp_sources
+B. cuda_sources
+C. setup.py
+explanation: `<<<>>>` 只能由 nvcc 编译，因此需要放在 CUDA 源码部分。
+```
+
 ### 项目文件架构
 
 ```
