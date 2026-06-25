@@ -231,7 +231,7 @@ prefix cache 的正确性要求很严格：
 KV bytes = 2 * layers * tokens * kv_heads * head_dim * bytes_per_element
 ```
 
-s09g 的 inference system design 笔记把这个公式转成了更工程化的并发账：
+更工程化的并发账可以写成：
 
 ```text
 bytes_per_token = 2 * layers * kv_heads * head_dim * bytes_per_element
@@ -472,7 +472,7 @@ L4: indexer -> indices4 -> sparse attention
 
 ## 九、GLM-5.2 IndexShare / IndexCache 源码精读
 
-官方 GLM-5.2 文档说 IndexShare 每 4 个 sparse attention layer 共享一个轻量 indexer，1M context 下 per-token FLOPs 降低 2.9 倍。论文名是 IndexCache，方法名强调 cross-layer index reuse。
+IndexShare 每 4 个 sparse attention layer 共享一个轻量 indexer，1M context 下 per-token FLOPs 降低 2.9 倍。论文名是 IndexCache，方法名强调 cross-layer index reuse。
 
 ### 1. Transformers reference path
 
@@ -624,7 +624,7 @@ IndexCache 论文给了两个版本：
 | training-free | 冻结模型，用校准集 LM loss 贪心搜索哪些层保留 indexer | 已有 DSA 模型快速改造 |
 | training-aware | retained indexer 用 multi-layer distillation 同时服务多层 | 从训练中就让 indexer 适应共享 |
 
-GLM-5.2 是训练中引入 IndexShare。官方博客写到从 mid-training 的 128K sequence length 开始训练，这比事后硬改 schedule 更稳。
+GLM-5.2 是训练中引入 IndexShare，并从 mid-training 的 128K sequence length 开始训练。这比事后硬改 schedule 更稳。
 
 论文里还有一个值得记住的负结果：
 
@@ -646,7 +646,7 @@ accepted token 的 KV commit
 rejected suffix 的 rollback
 ```
 
-GLM-5.2 的 MTP 还把 IndexShare 用到 MTP layer。官方博客的关键点是：
+GLM-5.2 的 MTP 还把 IndexShare 用到 MTP layer。关键点是：
 
 ```text
 MTP 第一步运行 indexer。

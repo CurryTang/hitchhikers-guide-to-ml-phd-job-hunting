@@ -81,7 +81,7 @@ Speculative decoding 主要打的是 decode 的 ITL/TPOT。
 
 ### 1.1 从系统入口看 TTFT
 
-s09g 在 2026 年 6 月的 ChatGPT-style system design 笔记里，把一次在线请求拆成这条路径：
+在线聊天请求通常会走这样一条路径：
 
 ```text
 Client
@@ -93,7 +93,7 @@ Client
   -> Streaming Response
 ```
 
-这条链路对理解 TTFT 很有用。首 token 慢，不一定是模型 forward 慢，也可能慢在：
+首 token 慢，不一定是模型 forward 慢，也可能慢在：
 
 | 层 | 对 TTFT 的影响 |
 |---|---|
@@ -472,7 +472,7 @@ def mtp_spec_step(context, target, mtp, k):
 
 ### 6.4 GLM-5.2：MTP with IndexShare and KVShare
 
-GLM-5.2 官方博客写了三个细节，值得单独记：
+GLM-5.2 的 MTP 路径有三个关键实现细节：
 
 ```text
 1. MTP layer 也使用 IndexShare。
@@ -480,7 +480,7 @@ GLM-5.2 官方博客写了三个细节，值得单独记：
 3. MTP 的 KV cache 只包含来自 target model hidden states 的 KV，不把后续 MTP hidden 混进去。
 ```
 
-这就是博客里说的 KVShare。它解决一个训练和推理不一致的问题。
+这就是 KVShare 要解决的问题：MTP 训练和推理里的 KV 来源必须一致。
 
 如果没有这个处理，第二个 MTP step 的上下文会变成：
 
@@ -899,7 +899,7 @@ verify block 太长会不会拖慢别人的 ITL？
 
 ### 8.6 Admission control：什么时候根本不该进 GPU
 
-s09g 在 multimodal inference / Sora system design 里强调了一个更上层的调度原则：昂贵 GPU 阶段前必须先做 admission control，而不是让所有请求排进 GPU queue。这个原则同样适用于 LLM serving，只是粒度从“一个长视频 job”变成“一个 request 的 prefill / decode / tool-call episode”。
+昂贵 GPU 阶段前必须先做 admission control，而不是让所有请求排进 GPU queue。这个原则同样适用于 LLM serving，只是粒度从“一个长视频 job”变成“一个 request 的 prefill / decode / tool-call episode”。
 
 可以把 admission 拆成三层：
 
