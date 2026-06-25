@@ -231,6 +231,18 @@ prefix cache 的正确性要求很严格：
 KV bytes = 2 * layers * tokens * kv_heads * head_dim * bytes_per_element
 ```
 
+s09g 的 inference system design 笔记把这个公式转成了更工程化的并发账：
+
+```text
+bytes_per_token = 2 * layers * kv_heads * head_dim * bytes_per_element
+kv_cache_per_session = bytes_per_token * cached_tokens
+
+max_sessions ~= (gpu_memory - model_weights - runtime_overhead)
+                / kv_cache_per_session
+```
+
+这个 `max_sessions` 只能当上限。真实 serving 还要扣掉 activations、workspace、communication buffer、allocator reserve、PagedAttention metadata、sampler/logits buffer、tokenizer/runtime 开销和安全余量。
+
 对 MLA，可以换成：
 
 ```text
@@ -254,6 +266,8 @@ KV cache ~= active_requests * sequence_length
 ```
 
 所以同一张卡上能跑多大 batch，常常由 KV cache 决定，而不是由权重决定。
+
+GQA/MQA 的收益也应该按这个公式理解：它们不是让 attention 不读历史，而是把 `kv_heads` 变小。比如 query heads 仍然是 32，但 KV heads 从 32 降到 8，单 token KV cache 就直接降到四分之一；如果同时把 context 从 4K 拉到 8K，cache 仍可能比原来的 MHA 4K 更小。
 
 ## 六、Kernel 视角：paged decode attention 怎么读 cache
 
@@ -293,6 +307,82 @@ def paged_decode_attention(q, block_table, k_cache, v_cache, seq_len):
 - CUDA graph 要求 batch shape 稳定，因此 runtime 常把请求 padding 到固定 capture size。
 
 这解释了为什么 FlashAttention、FlashInfer、vLLM paged kernel 不是简单替换关系。它们都在处理 attention，但输入布局、metadata、batch 动态性不同。
+
+### 6.1 Triton sketch：paged KV gather
+
+下面这个 kernel 不是完整 attention，只展示 paged KV cache 最容易写错的一层：logical token position 需要先查 block table，再映射到 physical KV block。
+
+```python
+import triton
+import triton.language as tl
+
+
+@triton.jit
+def paged_k_gather_kernel(
+    q_ptr,              # [num_heads, head_dim]
+    k_cache_ptr,        # [num_blocks, block_size, num_kv_heads, head_dim]
+    block_table_ptr,    # [max_blocks_per_seq]
+    out_scores_ptr,     # [seq_len]
+    seq_len: tl.constexpr,
+    block_size: tl.constexpr,
+    head_dim: tl.constexpr,
+    kv_heads: tl.constexpr,
+    BLOCK_M: tl.constexpr,
+    BLOCK_D: tl.constexpr,
+):
+    pid_m = tl.program_id(0)
+    offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    offs_d = tl.arange(0, BLOCK_D)
+
+    logical_block = offs_m // block_size
+    block_offset = offs_m % block_size
+    physical_block = tl.load(block_table_ptr + logical_block, mask=offs_m < seq_len, other=0)
+
+    # 这里只写单 query head -> 单 kv head 的情况，GQA 需要额外做 head mapping。
+    k_offsets = (
+        ((physical_block * block_size + block_offset) * kv_heads * head_dim)
+        + offs_d[None, :]
+    )
+    q = tl.load(q_ptr + offs_d, mask=offs_d < head_dim, other=0.0)
+    k = tl.load(k_cache_ptr + k_offsets, mask=(offs_m[:, None] < seq_len) & (offs_d[None, :] < head_dim), other=0.0)
+
+    score = tl.sum(k * q[None, :], axis=1)
+    tl.store(out_scores_ptr + offs_m, score, mask=offs_m < seq_len)
+```
+
+生产 kernel 会把这个 gather、online softmax、V aggregation 融在一起。这里拆开写，是为了看清楚 PagedAttention 的核心代价：每个 tile 多一次 `block_table` 间接寻址。
+
+### 6.2 Triton sketch：DSA sparse indices gather
+
+DSA / IndexShare 的 sparse decode 还会多一层 `paged_kv_indices`。它不是按 `0..seq_len` 顺序扫历史，而是按 indexer 选出的 top-k paged indices 读 K/V。
+
+```python
+@triton.jit
+def sparse_k_gather_kernel(
+    q_ptr,                 # [head_dim]
+    k_cache_ptr,           # paged KV cache storage
+    paged_kv_indices_ptr,  # [topk]
+    out_scores_ptr,        # [topk]
+    topk: tl.constexpr,
+    head_dim: tl.constexpr,
+    BLOCK_K: tl.constexpr,
+    BLOCK_D: tl.constexpr,
+):
+    pid_k = tl.program_id(0)
+    offs_k = pid_k * BLOCK_K + tl.arange(0, BLOCK_K)
+    offs_d = tl.arange(0, BLOCK_D)
+
+    kv_index = tl.load(paged_kv_indices_ptr + offs_k, mask=offs_k < topk, other=0)
+    k_offsets = kv_index[:, None] * head_dim + offs_d[None, :]
+
+    q = tl.load(q_ptr + offs_d, mask=offs_d < head_dim, other=0.0)
+    k = tl.load(k_cache_ptr + k_offsets, mask=(offs_k[:, None] < topk) & (offs_d[None, :] < head_dim), other=0.0)
+
+    score = tl.sum(k * q[None, :], axis=1)
+    tl.store(out_scores_ptr + offs_k, score, mask=offs_k < topk)
+```
+
+这个 sketch 对应 ATOM/vLLM 路径里的 `paged_kv_indices` buffer。Full layer 写入新的 indices；shared layer 跳过 indexer，继续读同一批 indices。实际实现还要处理 batch indptr、last page length、head mapping、FP8 scale、causal mask 和 online softmax。
 
 ## 七、KV cache 压缩、淘汰与传输
 
@@ -892,6 +982,7 @@ GLM-5.2 在 DSA sparse attention 中让一组连续层复用同一个 Full layer
 - [GLM-5.2 official blog](https://huggingface.co/blog/zai-org/glm-52-blog)
 - [GLM-5 official repository](https://github.com/zai-org/GLM-5)
 - [ATOM GLM-5 recipe](https://github.com/ROCm/ATOM/blob/main/recipes/GLM-5.md)
+- [s09g: Inference basic: KV Cache、Batching 与并行化](https://s09g.medium.com/inference-basic-kv-cache-batching-%E4%B8%8E%E5%B9%B6%E8%A1%8C%E5%8C%96-74fdcd184fac)
 - [ThunderAgent: A Simple, Fast and Program-Aware Agentic Inference System](https://arxiv.org/abs/2602.13692)
 - [ThunderAgent Program Scheduler in NVIDIA Dynamo](https://docs.nvidia.com/dynamo/dev/user-guides/agents/thunder-agent-program-scheduler)
 - [ThunderAgent GitHub repository](https://github.com/ThunderAgent-org/ThunderAgent)

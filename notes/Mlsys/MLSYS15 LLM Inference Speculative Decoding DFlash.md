@@ -79,6 +79,41 @@ for step in range(max_new_tokens):
 
 Speculative decoding 主要打的是 decode 的 ITL/TPOT。
 
+### 1.1 从系统入口看 TTFT
+
+s09g 在 2026 年 6 月的 ChatGPT-style system design 笔记里，把一次在线请求拆成这条路径：
+
+```text
+Client
+  -> API Gateway
+  -> Session Manager
+  -> Message Queue
+  -> Inference Service
+  -> Model
+  -> Streaming Response
+```
+
+这条链路对理解 TTFT 很有用。首 token 慢，不一定是模型 forward 慢，也可能慢在：
+
+| 层 | 对 TTFT 的影响 |
+|---|---|
+| API Gateway | 鉴权、日志、协议转换、限流 |
+| Session Manager | 读取历史消息、system prompt、tool schema、RAG context |
+| Message Queue | 高峰期排队，给后端 scheduler 形成 batch 的空间 |
+| Inference Service | tokenizer、prefill、KV 分配、batching、GPU scheduling |
+
+限流也不能只看 requests per minute。LLM 服务真正吃紧的是 GPU 时间和 KV cache 容量，所以线上更常用的口径是：
+
+```text
+requests/minute
+tokens/minute
+concurrent running sequences
+max batched tokens
+KV pages in use
+```
+
+Session state 也不是“模型记住了对话”。模型通常是 stateless 的；多轮记忆由应用层重新组织 prompt。近期状态可以放 Redis，完整消息和模型回复要异步落库，严格一点的系统会在 request path 里放 WAL，避免生成到一半进程挂掉后 session 状态丢失。
+
 ---
 
 ## 二、最朴素的 speculative decoding
@@ -698,6 +733,20 @@ def decode_iteration(waiting, running, kv_allocator):
 
 面试里要能指出：**scheduler 决定 batch shape，batch shape 决定 kernel 效率**。Speculative decoding 改变了 step 粒度：一次 target verify 可能推进多个 token，因此 scheduler 不能再假设“每个 running request 每轮只追加 1 个 KV slot”。
 
+Continuous batching 的核心不是“等一批请求凑齐再跑”，而是每个 decode iteration 都重新决定谁进入 batch。某个 request 生成 EOS 后可以立刻释放位置；只要 token budget 和 KV page budget 允许，新 request 就能插进下一轮。这个策略提升 GPU 利用率，但也引入一个常见冲突：长 prefill 插入 decode batch 时，会拖慢已有用户的下一个 token。
+
+因此 chunked prefill 的系统意义是把长 prompt 切成可调度的小片段：
+
+```text
+long prefill:
+  [4096 prompt tokens] blocks decode for a long time
+
+chunked prefill:
+  [512] -> decode steps -> [512] -> decode steps -> ...
+```
+
+这和 speculative verify 的问题很像：verify 不是纯 decode，它带着 `k + 1` 个 query token，更像一段短 prefill。调度器需要把普通 decode、chunked prefill、spec verify 放进同一个 token budget，而不是只按 request 个数排队。
+
 ### 8.2 Paged KV Cache：为什么 decode 需要内存管理器
 
 KV cache 大小近似：
@@ -847,6 +896,30 @@ verify block 太长会不会拖慢别人的 ITL？
 ```
 
 这就是 DFlash / EAGLE 在 serving 里真正难的地方：算法只说 acceptance length，系统还要看 batch interference。
+
+### 8.6 Admission control：什么时候根本不该进 GPU
+
+s09g 在 multimodal inference / Sora system design 里强调了一个更上层的调度原则：昂贵 GPU 阶段前必须先做 admission control，而不是让所有请求排进 GPU queue。这个原则同样适用于 LLM serving，只是粒度从“一个长视频 job”变成“一个 request 的 prefill / decode / tool-call episode”。
+
+可以把 admission 拆成三层：
+
+| 层 | 决策 |
+|---|---|
+| quota / rate limit | 这个用户有没有额度；按 request、token、并发一起限制 |
+| resource check | 当前是否有足够 KV pages、batch token budget、目标模型 replica |
+| traffic shaping | free / paid / enterprise 优先级；是否降级、排队或转移到其他 pool |
+
+对多阶段任务，DAG 和状态机比单一 queue 更清楚：
+
+```text
+ready -> scheduling -> running -> completed
+running -> retry -> ready
+running -> failed
+```
+
+如果阶段需要多张 GPU，例如大模型 TP/PP 推理、MoE expert parallel、视频 DiT 的 CP/TP 组合，就要做 gang scheduling：拿不到完整 GPU set 就不要启动。否则半启动的 job 会占用资源但无法前进。
+
+preemption 也要分阶段。cheap stage，例如 tokenizer、safety check、prompt rewrite、RAG retrieval，可以暂停和重试；一旦进入模型 forward，中途保存 activation state 往往不划算。更实际的做法是在 GPU forward 开始前抢占，或者让已经 running 的 job draining 完成，再把新高优先级请求放进下一轮。
 
 ---
 
@@ -1090,7 +1163,7 @@ benchmark tokens/s 变高
 | DFlash | 用 block diffusion 降低 autoregressive draft cost，但要求 runtime 支持 hidden-state extraction 与 KV injection |
 | MiniMax-M2 系列 | agent RL serving 里 prefill/decode disaggregation、MTP spec decode、global KV cache pool 会一起出现 |
 
-面试时不要只说“DFlash 更快”。更高质量的回答是：
+高质量回答可以这样组织：
 
 ```text
 DFlash 降低 draft 串行成本，提高 acceptance length；
@@ -1159,3 +1232,5 @@ GPU memory headroom
 - [z-lab/dflash GitHub](https://github.com/z-lab/dflash)
 - [Qwen3-8B-DFlash-b16 Hugging Face model card](https://huggingface.co/z-lab/Qwen3-8B-DFlash-b16)
 - [MiniMax-M2 Series Technical Report](https://arxiv.org/abs/2605.26494)
+- [s09g: Inference basic: KV Cache、Batching 与并行化](https://s09g.medium.com/inference-basic-kv-cache-batching-%E4%B8%8E%E5%B9%B6%E8%A1%8C%E5%8C%96-74fdcd184fac)
+- [s09g: Multi-Modal Inference / 文生图 Sora 系统设计](https://s09g.medium.com/%E6%96%87%E7%94%9F%E5%9B%BE-sora-%E7%B3%BB%E7%BB%9F%E8%AE%A1-2e42d2f4e387)
