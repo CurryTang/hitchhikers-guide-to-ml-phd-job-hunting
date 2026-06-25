@@ -3,9 +3,6 @@
 > [!info] 概述
 > 本教程从**系统工程视角**解析 LLM post-training 中的强化学习基础设施，覆盖 TRL、veRL、slime、AReaL、ROLL、Forge 等主流框架。算法部分只讲 PPO 与 GRPO 的关键设计决策，重点在「它们如何决定系统形态」。配套练习见 [[MLSYS15 RL Infra 自测 35 问]]。
 
-> [!note] 2026-06 review 更新
-> 这一版把第 14 课按最新公开材料重新校了一遍：AReaL v5 把 fully async 的收益表述为最高 **2.77×**；SkyRL-Agent 把多轮 agent rollout 拆成 runtime init / agent run / reward calculation / backend bridge；MiniMax-M2/Forge 把 agent-native RL、异构 prefill-decode disaggregation、global KV cache pool 和在线 speculative drafter 训练放到同一套系统里。读这篇时不要只背框架名，要追问三件事：**谁生成 trajectory、谁保证 token provenance、谁控制 staleness 和 weight sync**。
-
 ---
 
 ## 目录
