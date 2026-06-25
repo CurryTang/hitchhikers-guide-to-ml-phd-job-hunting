@@ -14,7 +14,6 @@ const markdownModules = import.meta.glob('../notes/**/*.md', {
 });
 
 const mlsysNoteDefinitions = [
-  createTutorialDefinition('MLSYS Overview：学习路径与目录', 'MLSYS Overview.md', null),
   createTutorialDefinition('MLSYS1 · GPU 体系结构入门', 'MLSYS1.md', 'MLSYS1.en.md'),
   createTutorialDefinition('MLSYS2 · CUDA 编程模型与 GPU 组件', 'MLSYS2.md', 'MLSYS2.en.md'),
   createTutorialDefinition('MLSYS3 · Roofline Analysis', 'MLSYS3.md', 'MLSYS3.en.md'),
