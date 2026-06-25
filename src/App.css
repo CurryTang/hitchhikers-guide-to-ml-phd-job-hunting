@@ -245,12 +245,17 @@
   grid-template-columns: clamp(280px, 18vw, 320px) minmax(0, 1fr);
   min-height: calc(100vh - 72px);
   background:
-    radial-gradient(circle at 10% 10%, rgba(255, 238, 201, 0.38), transparent 40%),
-    radial-gradient(circle at 95% 85%, rgba(196, 255, 233, 0.4), transparent 45%),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.32) 0 1px, transparent 1px 40px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.32) 0 1px, transparent 1px 40px),
     linear-gradient(120deg, #f6f2e9 0%, #ecf4f6 100%);
 }
 
 .notes-panel {
+  position: sticky;
+  top: 72px;
+  align-self: start;
+  min-height: 0;
+  max-height: calc(100vh - 72px);
   border-right: 1px solid rgba(35, 53, 66, 0.18);
   backdrop-filter: blur(8px);
   padding: 1.35rem 1rem;
@@ -343,6 +348,7 @@
 }
 
 .note-list {
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
@@ -397,11 +403,11 @@
 }
 
 .reader-panel {
-  --reader-max-width: 1320px;
+  --reader-max-width: 1500px;
   min-width: 0;
   padding: 1rem;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 0.9rem;
 }
 
@@ -486,16 +492,92 @@
   color: #f5fbff;
 }
 
-.markdown-body {
+.reader-content-grid {
   width: 100%;
   max-width: min(100%, var(--reader-max-width));
+  min-width: 0;
   margin-inline: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 240px);
+  gap: 0.9rem;
+  align-items: start;
+}
+
+.markdown-body {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin-inline: 0;
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(25, 58, 75, 0.2);
   border-radius: 8px;
   padding: clamp(1rem, 1.4vw, 1.35rem);
-  overflow-y: auto;
+  overflow-x: hidden;
   box-shadow: 0 8px 16px rgba(31, 53, 66, 0.1);
+}
+
+.section-toc {
+  position: sticky;
+  top: 88px;
+  min-width: 0;
+  align-self: start;
+}
+
+.section-toc-inner {
+  max-height: calc(100vh - 110px);
+  overflow-y: auto;
+  border: 1px solid rgba(25, 58, 75, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: 0 8px 16px rgba(31, 53, 66, 0.08);
+  padding: 0.82rem;
+}
+
+.section-toc .eyebrow {
+  margin-bottom: 0.55rem;
+}
+
+.section-toc nav {
+  display: grid;
+  gap: 0.24rem;
+}
+
+.toc-link {
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #2b4857;
+  cursor: pointer;
+  display: block;
+  font: 650 0.76rem "IBM Plex Mono", "Courier New", monospace;
+  line-height: 1.35;
+  padding: 0.36rem 0.42rem;
+  text-align: left;
+  text-decoration: none;
+  transition: background 150ms ease, color 150ms ease, transform 150ms ease;
+}
+
+.toc-link:hover,
+.toc-link:focus-visible {
+  background: rgba(13, 109, 143, 0.1);
+  color: #0d4f69;
+  outline: none;
+}
+
+.toc-link.level-1 {
+  color: #102735;
+  font-weight: 800;
+}
+
+.toc-link.level-2 {
+  padding-left: 0.78rem;
+}
+
+.toc-link.level-3 {
+  padding-left: 1.2rem;
+  color: #607782;
+  font-size: 0.7rem;
 }
 
 .markdown-body h1,
@@ -2460,6 +2542,31 @@
   color: #1f3847;
 }
 
+@media (max-width: 1180px) {
+  .reader-content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .section-toc {
+    position: static;
+    order: -1;
+  }
+
+  .section-toc-inner {
+    max-height: 13.5rem;
+  }
+
+  .section-toc nav {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    align-items: start;
+  }
+
+  .toc-link.level-2,
+  .toc-link.level-3 {
+    padding-left: 0.42rem;
+  }
+}
+
 @media (max-width: 900px) {
   .site-shell {
     max-width: 100vw;
@@ -2538,22 +2645,33 @@
     max-width: 100vw;
     overflow-x: hidden;
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(300px, 42vh) 1fr;
+    grid-template-rows: minmax(260px, 40vh) 1fr;
     min-height: auto;
   }
 
   .notes-panel {
+    position: static;
+    max-height: 40vh;
     max-width: 100vw;
-    overflow-x: hidden;
+    overflow: hidden;
     border-right: none;
     border-bottom: 1px solid rgba(35, 53, 66, 0.18);
   }
 
   .reader-panel,
   .reader-header,
+  .reader-content-grid,
   .markdown-body {
     max-width: calc(100vw - 2rem);
     overflow-x: hidden;
+  }
+
+  .reader-content-grid {
+    gap: 0.75rem;
+  }
+
+  .section-toc-inner {
+    max-height: 12rem;
   }
 
   .reader-header h2,

@@ -16,10 +16,10 @@ const markdownModules = import.meta.glob('../notes/**/*.md', {
 const mlsysNoteDefinitions = [
   createTutorialDefinition('MLSYS1 · GPU 体系结构入门', 'MLSYS1.md', 'MLSYS1.en.md'),
   createTutorialDefinition('MLSYS2 · CUDA 编程模型', 'MLSYS2.md', 'MLSYS2.en.md'),
-  createTutorialDefinition('MLSYS3 · Memory-Bound 算子优化', 'MLSYS3.md', 'MLSYS3.en.md'),
-  createTutorialDefinition('MLSYS4 · Flash Attention', 'MLSYS4.md', 'MLSYS4.en.md'),
-  createTutorialDefinition('MLSYS5 · KV Cache 与推理系统', 'MLSYS5.md', 'MLSYS5.en.md'),
-  createTutorialDefinition('MLSYS6 · Continuous Batching & vLLM', 'MLSYS6.md', 'MLSYS6.en.md'),
+  createTutorialDefinition('MLSYS3 · Roofline Analysis', 'MLSYS3.md', 'MLSYS3.en.md'),
+  createTutorialDefinition('MLSYS4 · CUDA Reduce Kernel', 'MLSYS4.md', 'MLSYS4.en.md'),
+  createTutorialDefinition('MLSYS5 · Histogram & Scan', 'MLSYS5.md', 'MLSYS5.en.md'),
+  createTutorialDefinition('MLSYS6 · Memory-Bound Kernel 优化', 'MLSYS6.md', 'MLSYS6.en.md'),
   createTutorialDefinition(
     'MLSYS7 · Compute-Bound Kernel (1)',
     'MLSYS7 Compute-Bound Kernel (1).md',
@@ -445,10 +445,15 @@ function HeadingWithAnchor({ level, children }) {
   const Tag = `h${level}`;
   const text = extractPlainText(children);
   const id = slugify(text);
+  const scrollToSection = (event) => {
+    event.preventDefault();
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   return (
     <Tag id={id} className="heading-anchor-host">
       {children}
-      <a href={`#${id}`} className="heading-anchor" aria-label="Link to section">¶</a>
+      <a href={`#${id}`} className="heading-anchor" aria-label="Link to section" onClick={scrollToSection}>¶</a>
     </Tag>
   );
 }
@@ -467,6 +472,43 @@ function extractPlainText(value) {
   }
 
   return '';
+}
+
+function extractMarkdownHeadings(markdownText) {
+  if (!markdownText) {
+    return [];
+  }
+
+  return markdownText
+    .replace(/```[\s\S]*?```/g, '')
+    .split('\n')
+    .map((line) => {
+      const match = /^(#{1,3})\s+(.+?)\s*$/.exec(line);
+      if (!match) {
+        return null;
+      }
+
+      const text = cleanHeadingText(match[2]);
+      if (!text) {
+        return null;
+      }
+
+      return {
+        id: slugify(text),
+        level: match[1].length,
+        text,
+      };
+    })
+    .filter(Boolean);
+}
+
+function cleanHeadingText(text) {
+  return text
+    .replace(/<[^>]+>/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[`*_~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function normalizeAnswerToken(rawValue) {
@@ -1656,6 +1698,15 @@ function App() {
     () => normalizeObsidianMarkdown(selectedContent),
     [selectedContent],
   );
+  const sectionHeadings = useMemo(
+    () => extractMarkdownHeadings(normalizedSelectedContent).filter((heading) => heading.level <= 3),
+    [normalizedSelectedContent],
+  );
+
+  const scrollToHeading = (headingId) => {
+    const target = document.getElementById(headingId);
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const navigateHome = () => {
     setCurrentView('home');
@@ -1870,46 +1921,71 @@ function App() {
               </div>
             </header>
 
-            <article className="markdown-body">
-              {selectedError && <p className="empty-note">Load failed: {selectedError}</p>}
-              {selectedIsLoading && !selectedError && <p className="empty-note">Loading markdown...</p>}
-              {!selectedIsLoading && !selectedError && normalizedSelectedContent?.trim() && (
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm, remarkMath]}
-                  rehypePlugins={[rehypeRaw, rehypeKatex]}
-                  components={{
-                    a: ({ href, children, ...props }) => {
-                      const external = href?.startsWith('http');
-                      return (
-                        <a
-                          href={href}
-                          target={external ? '_blank' : undefined}
-                          rel={external ? 'noreferrer' : undefined}
-                          {...props}
-                        >
+            <div className="reader-content-grid">
+              <article className="markdown-body">
+                {selectedError && <p className="empty-note">Load failed: {selectedError}</p>}
+                {selectedIsLoading && !selectedError && <p className="empty-note">Loading markdown...</p>}
+                {!selectedIsLoading && !selectedError && normalizedSelectedContent?.trim() && (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm, remarkMath]}
+                    rehypePlugins={[rehypeRaw, rehypeKatex]}
+                    components={{
+                      a: ({ href, children, ...props }) => {
+                        const external = href?.startsWith('http');
+                        return (
+                          <a
+                            href={href}
+                            target={external ? '_blank' : undefined}
+                            rel={external ? 'noreferrer' : undefined}
+                            {...props}
+                          >
+                            {children}
+                          </a>
+                        );
+                      },
+                      h1: ({ children }) => <HeadingWithAnchor level={1}>{children}</HeadingWithAnchor>,
+                      h2: ({ children }) => <HeadingWithAnchor level={2}>{children}</HeadingWithAnchor>,
+                      h3: ({ children }) => <HeadingWithAnchor level={3}>{children}</HeadingWithAnchor>,
+                      h4: ({ children }) => <HeadingWithAnchor level={4}>{children}</HeadingWithAnchor>,
+                      pre: MarkdownPre,
+                      code: ({ className, children, ...props }) => (
+                        <code className={className} {...props}>
                           {children}
+                        </code>
+                      ),
+                    }}
+                  >
+                    {normalizedSelectedContent}
+                  </ReactMarkdown>
+                )}
+                {!selectedIsLoading && !selectedError && selectedContent !== undefined && !selectedContent.trim() && (
+                  <p className="empty-note">This file is empty and ready for future notes.</p>
+                )}
+              </article>
+
+              {sectionHeadings.length > 0 && (
+                <aside className="section-toc" aria-label="Section navigation">
+                  <div className="section-toc-inner">
+                    <p className="eyebrow">Sections</p>
+                    <nav>
+                      {sectionHeadings.slice(0, 18).map((heading, index) => (
+                        <a
+                          className={`toc-link level-${heading.level}`}
+                          href={`#${heading.id}`}
+                          key={`${heading.id}-${index}`}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            scrollToHeading(heading.id);
+                          }}
+                        >
+                          {heading.text}
                         </a>
-                      );
-                    },
-                    h1: ({ children }) => <HeadingWithAnchor level={1}>{children}</HeadingWithAnchor>,
-                    h2: ({ children }) => <HeadingWithAnchor level={2}>{children}</HeadingWithAnchor>,
-                    h3: ({ children }) => <HeadingWithAnchor level={3}>{children}</HeadingWithAnchor>,
-                    h4: ({ children }) => <HeadingWithAnchor level={4}>{children}</HeadingWithAnchor>,
-                    pre: MarkdownPre,
-                    code: ({ className, children, ...props }) => (
-                      <code className={className} {...props}>
-                        {children}
-                      </code>
-                    ),
-                  }}
-                >
-                  {normalizedSelectedContent}
-                </ReactMarkdown>
+                      ))}
+                    </nav>
+                  </div>
+                </aside>
               )}
-              {!selectedIsLoading && !selectedError && selectedContent !== undefined && !selectedContent.trim() && (
-                <p className="empty-note">This file is empty and ready for future notes.</p>
-              )}
-            </article>
+            </div>
           </>
         ) : (
           <section className="reader-empty">
