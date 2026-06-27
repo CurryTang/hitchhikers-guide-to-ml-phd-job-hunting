@@ -1753,8 +1753,6 @@ reference
 
 ---
 
----
-
 ## 十一、练习题
 
 ### 练习 1：70B 模型为什么单卡放不下？
@@ -1772,5 +1770,144 @@ reference
 <summary><span class="q-label">答案</span> <span class="q-text">TP 的通信频率和通信量有什么特点？</span></summary>
 
 Tensor Parallel 会把单层矩阵乘拆到多卡，同一层 forward/backward 中就需要 collective communication。它通信频繁、延迟敏感，最好放在 NVLink/NVSwitch 这种高带宽低延迟节点内拓扑。跨节点做 TP 通常会被 IB latency 和 bandwidth 明显拖慢。
+
+</details>
+
+### 练习 3：ZeRO 三阶段到底分片了什么？
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">用一句话区分 ZeRO-1 / ZeRO-2 / ZeRO-3。</span></summary>
+
+ZeRO-1 只分片 optimizer state，所以参数和梯度仍然每张卡都有完整副本。ZeRO-2 再把梯度也分片，所以每张卡只保留自己负责更新的 gradient shard。ZeRO-3 / FSDP 进一步把参数也分片，平时每张卡只保存参数 shard，计算某一层时临时 all-gather 出完整权重，用完再释放。
+
+| 阶段 | 参数 | 梯度 | Optimizer state | 关键收益 |
+|---|---|---|---|---|
+| DDP | replicated | replicated | replicated | 简单，通信只在反向梯度同步 |
+| ZeRO-1 | replicated | replicated | sharded | 先省 Adam 状态 |
+| ZeRO-2 | replicated | sharded | sharded | 再省梯度 |
+| ZeRO-3 / FSDP | sharded | sharded | sharded | 参数、梯度、优化器全省 |
+
+</details>
+
+### 练习 4：7B 模型在 8 卡上的 ZeRO 内存账
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">为什么 ZeRO-3 可以把 7B 从 126GB/GPU 降到约 15.75GB/GPU？</span></summary>
+
+假设混合精度 Adam：BF16 参数 2 bytes，FP32 梯度 4 bytes，FP32 master weight + Adam m + Adam v 共 12 bytes。7B 参数总计：
+
+```text
+参数: 7B * 2  = 14GB
+梯度: 7B * 4  = 28GB
+优化器: 7B * 12 = 84GB
+DDP 每卡总计: 126GB
+```
+
+8 卡 ZeRO-3 把三类状态都按 DP 维度切 8 份：
+
+```text
+参数 shard: 14 / 8 = 1.75GB
+梯度 shard: 28 / 8 = 3.5GB
+优化器 shard: 84 / 8 = 10.5GB
+每卡常驻: 15.75GB
+```
+
+这个数字不包含 activation、temporary all-gather buffer、fragmentation、CUDA workspace 和 dataloader buffer。实际训练时还要给这些预留显存。
+
+</details>
+
+### 练习 5：FSDP 为什么还要 AllGather？
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">参数已经分片了，为什么 forward 时还要临时重建完整权重？</span></summary>
+
+一层 Linear 的矩阵乘通常需要完整的 weight matrix 才能计算本 rank 的 local batch。如果参数沿 DP 维度分片，每张卡只保存这一层权重的一部分，无法直接完成完整 layer forward。因此 FSDP 在进入某个 wrapped module 前 all-gather 该 module 的完整参数，完成 forward 后释放完整参数，只保留 shard。
+
+关键点是：完整权重不是长期 replicated，而是按 layer/module 临时 materialize。FSDP 省内存靠的是“用到哪层 gather 哪层，用完马上 free”，不是完全避免权重通信。
+
+</details>
+
+### 练习 6：FSDP 和 DDP 通信量为什么可以差不多？
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">DDP 是 AllReduce，FSDP 是 AllGather + ReduceScatter，为什么总量不一定更大？</span></summary>
+
+DDP 反向结束后对完整梯度做 AllReduce。AllReduce 可以分解为 ReduceScatter + AllGather：先把梯度归约并切片，再把切片广播回所有 rank，让每张卡都有完整梯度。
+
+FSDP 不需要每张卡都保留完整梯度，所以 backward 时只做 ReduceScatter，把归约后的梯度 shard 留在对应 rank；但 FSDP forward/backward 需要对参数做 AllGather。理想模型下，两者总通信量可以同阶甚至接近，差别在通信发生的时间点：
+
+```text
+DDP:  backward compute -> large gradient AllReduce
+FSDP: layer-wise weight AllGather + layer-wise gradient ReduceScatter
+```
+
+FSDP 的优势是显存小，并且通信更细粒度，更容易和计算 overlap；代价是更多 collective 调用、更复杂的 prefetch/free 策略。
+
+</details>
+
+### 练习 7：FSDP 的 wrap 粒度怎么选？
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">为什么通常按 Transformer block wrap，而不是整个模型一个 FSDP wrapper？</span></summary>
+
+如果整个模型只包一个 FSDP wrapper，forward 前会 all-gather 全模型参数，显存峰值接近 DDP，失去 FSDP 的主要收益。如果 wrap 太细，比如每个 Linear 都单独 wrap，虽然峰值更低，但 collective 调用过多，通信 latency 和调度开销会上升。
+
+按 Transformer block wrap 是常见折中：每次只 materialize 一个 block 的参数，显存峰值可控；同时每个 block 的参数量足够大，AllGather/ReduceScatter 的带宽利用率较好。更大模型还会配合 forward/backward prefetch，提前 gather 下一层，隐藏通信延迟。
+
+</details>
+
+### 练习 8：FSDP 和 activation checkpointing 解决的是同一个问题吗？
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">它们都省显存，但省的是不同部分。</span></summary>
+
+FSDP/ZeRO 主要省 model states：参数、梯度、optimizer state。Activation checkpointing 主要省 activation：forward 不保存所有中间激活，backward 时重新计算部分 forward 来恢复激活。
+
+两者通常要一起用：
+
+```text
+FSDP:
+  降低参数 / 梯度 / optimizer state 常驻显存
+
+Activation checkpointing:
+  降低 activation 显存
+  代价是 backward 多做一次或多次 forward compute
+```
+
+如果模型参数状态撑不下，优先需要 FSDP/ZeRO；如果参数状态已经能放下，但 batch size / sequence length 上不去，activation checkpointing 更直接。
+
+</details>
+
+### 练习 9：FSDP 和 Tensor Parallel 的边界
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">什么时候 FSDP 不够，必须加 TP？</span></summary>
+
+FSDP 是数据并行维度上的状态分片，每个 rank 仍然要在计算某个 module 时临时拥有完整 module 权重，并独立执行该 module 的 GEMM。如果单层矩阵本身太大，或者单卡执行该层 GEMM 太慢，FSDP 不能把这一层的计算切开。
+
+Tensor Parallel 是把单层矩阵乘本身切到多张 GPU 上。需要 TP 的典型信号：
+
+- 单个 layer 的临时 all-gather 权重峰值仍然太大。
+- 单卡 GEMM 太大或太慢，需要多卡一起算。
+- 模型 hidden size / FFN size / vocab projection 巨大。
+- 想用 Megatron 风格的 column-parallel / row-parallel linear。
+
+实际大模型常见组合是：节点内 TP 切层内计算，节点间 FSDP/DP 切 model states 和 batch。
+
+</details>
+
+### 练习 10：FSDP checkpoint 为什么麻烦？
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">保存的是 shard 还是 full state dict，会影响什么？</span></summary>
+
+FSDP 训练时参数、梯度、optimizer state 都是 sharded。checkpoint 可以保存 sharded state dict，也可以 gather 成 full state dict。两者 trade-off 不同：
+
+| checkpoint 类型 | 优点 | 缺点 |
+|---|---|---|
+| full state dict | 易加载、易转换、方便单机推理 | 保存时需要 gather，内存和网络峰值高 |
+| sharded state dict | 适合大模型，保存/恢复更分布式 | 依赖 world size / shard metadata，转换和排错更复杂 |
+
+工业训练通常需要异步 checkpoint、分片元数据、版本管理和恢复测试。否则节点失败后，能不能从 checkpoint 正确恢复比单次训练速度还关键。
 
 </details>
