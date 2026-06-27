@@ -767,13 +767,21 @@ ZeRO++ 优化 3：量化 ReduceScatter（qRS）
 
 ### 5.8 面试常见问题
 
-> [!question] FSDP 省不了激活值的内存，怎么办？
-> 激活值（每个 batch 的中间结果）在所有 ZeRO 阶段都不分片，仍然是 per-GPU 的完整值。需要单独应用**激活重计算（gradient checkpointing）**：前向时不保存激活，反向时重新计算。代价是额外 33% 的计算量，换来大量激活内存。
+<details class="exercise">
+<summary><span class="q-label">Q</span> <span class="q-text">FSDP 省不了激活值的内存，怎么办？</span></summary>
 
-> [!question] 什么时候选 FSDP，什么时候选 TP？
-> - FSDP：解决内存问题，通信在反向传播（大 batch 时高效）
-> - TP：解决小 batch 时的计算效率，通信在每个 matmul（需 NVLink）
-> - 实践：先用 FSDP，如果每 GPU batch size < 1000 tokens，再加 TP
+激活值（每个 batch 的中间结果）在所有 ZeRO 阶段都不分片，仍然是 per-GPU 的完整值。需要单独应用**激活重计算（gradient checkpointing）**：前向时不保存激活，反向时重新计算。代价是额外 33% 的计算量，换来大量激活内存。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q</span> <span class="q-text">什么时候选 FSDP，什么时候选 TP？</span></summary>
+
+- FSDP：解决内存问题，通信在反向传播（大 batch 时高效）
+- TP：解决小 batch 时的计算效率，通信在每个 matmul（需 NVLink）
+- 实践：先用 FSDP，如果每 GPU batch size < 1000 tokens，再加 TP
+
+</details>
 
 ### 5.9 何时使用 FSDP
 
@@ -1055,21 +1063,37 @@ InfiniBand (25 GB/s)：8MB / 25GB/s ≈ 320μs ← 每层 640μs，32层 = 20ms
 
 ### 6.9 面试常见问题
 
-> [!question] 列并行和行并行的通信模式有什么区别？
-> - **列并行**（按输出维度切）：输入复制，本地矩阵乘，输出天然分片 → **前向无通信**
-> - **行并行**（按输入维度切）：输入已分片（来自上一列并行），本地矩阵乘产生部分和 → **前向需 ReduceScatter**
-> - 反向传播中两者互换：列并行反向需 AllReduce，行并行反向需 AllGather
+<details class="exercise">
+<summary><span class="q-label">Q</span> <span class="q-text">列并行和行并行的通信模式有什么区别？</span></summary>
 
-> [!question] TP 的上限是多少？不能无限增加 TP 度吗？
-> 效率条件：$F > Y \times C/W$，即 $Y < F / (C/W)$。H100 上 $C/W \approx 1100$，LLaMA-70B 的 $F = 28672$，所以理论上限 $Y \approx 26$，实践中通常最多用到 8（一个节点内的 GPU 数）。超过这个值，通信时间 > 计算时间。
+- **列并行**（按输出维度切）：输入复制，本地矩阵乘，输出天然分片 → **前向无通信**
+- **行并行**（按输入维度切）：输入已分片（来自上一列并行），本地矩阵乘产生部分和 → **前向需 ReduceScatter**
+- 反向传播中两者互换：列并行反向需 AllReduce，行并行反向需 AllGather
 
-> [!question] TP 如何处理 Embedding 层？
-> Embedding 表 $[V, D]$ 很大（LLaMA-3：128K × 8K ≈ 2GB）。Vocab Parallel 让每个 GPU 持有 $[V/\text{tp}, D]$。前向时每个 GPU 查自己的词表段（不在自己段的 token 查到 0），然后 AllReduce 得到完整 embedding。LM Head 与 Embedding 共享权重（transposed），可以直接重用分片，无需额外通信。
+</details>
 
-> [!question] TP 和 FSDP 能同时用吗？如何组合？
-> 可以，这是最常见的组合。设 TP=t，FSDP=d，总 GPU 数 = t×d。
-> 每个 FSDP 组内的 t 个 GPU 做 TP（节点内 NVLink），d 个 FSDP 组之间做 DP（跨节点 InfiniBand）。
-> FSDP 看到的"权重"是 TP 已经分片后的 1/t，再在 d 个设备上分片存储，总每 GPU 权重 = 1/(t×d)。
+<details class="exercise">
+<summary><span class="q-label">Q</span> <span class="q-text">TP 的上限是多少？不能无限增加 TP 度吗？</span></summary>
+
+效率条件：$F > Y \times C/W$，即 $Y < F / (C/W)$。H100 上 $C/W \approx 1100$，LLaMA-70B 的 $F = 28672$，所以理论上限 $Y \approx 26$，实践中通常最多用到 8（一个节点内的 GPU 数）。超过这个值，通信时间 > 计算时间。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q</span> <span class="q-text">TP 如何处理 Embedding 层？</span></summary>
+
+Embedding 表 $[V, D]$ 很大（LLaMA-3：128K × 8K ≈ 2GB）。Vocab Parallel 让每个 GPU 持有 $[V/\text{tp}, D]$。前向时每个 GPU 查自己的词表段（不在自己段的 token 查到 0），然后 AllReduce 得到完整 embedding。LM Head 与 Embedding 共享权重（transposed），可以直接重用分片，无需额外通信。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q</span> <span class="q-text">TP 和 FSDP 能同时用吗？如何组合？</span></summary>
+
+可以，这是最常见的组合。设 TP=t，FSDP=d，总 GPU 数 = t×d。
+每个 FSDP 组内的 t 个 GPU 做 TP（节点内 NVLink），d 个 FSDP 组之间做 DP（跨节点 InfiniBand）。
+FSDP 看到的"权重"是 TP 已经分片后的 1/t，再在 d 个设备上分片存储，总每 GPU 权重 = 1/(t×d)。
+
+</details>
 
 ---
 
@@ -1223,22 +1247,42 @@ GPU 3: Layer 12-15 和 Layer 28-31
 
 ### 7.5 面试常见问题
 
-> [!question] 气泡的本质是什么？如何量化？
-> 气泡是流水线热身/冷却期间的 GPU 空闲。标准 1F1B 的气泡比例 = $(P-1)/(M+P-1)$。要使气泡 < 5%，需要 $M > 20(P-1) \approx 20P$。例如 PP=8 时，需要 160 个微批次。
+<details class="exercise">
+<summary><span class="q-label">Q</span> <span class="q-text">气泡的本质是什么？如何量化？</span></summary>
 
-> [!question] 1F1B 相比 GPipe 的核心优势是什么？
-> **不是气泡（两者相近），而是激活内存**。GPipe 需要同时保存 M 个微批次的激活值（$O(M)$ 内存），1F1B 稳态时只有 P 个激活值在飞行中（$O(P)$ 内存）。大模型训练中通常 $M \gg P$，节省激活内存至关重要。
+气泡是流水线热身/冷却期间的 GPU 空闲。标准 1F1B 的气泡比例 = $(P-1)/(M+P-1)$。要使气泡 < 5%，需要 $M > 20(P-1) \approx 20P$。例如 PP=8 时，需要 160 个微批次。
 
-> [!question] PP 的阶段间传递什么数据？大小是多少？
-> 前向：激活值 $[B/\text{dp}, S/\text{cp}, D]$，大小 $= B \cdot S \cdot D \cdot 2$ 字节（bf16）。反向：同形状的梯度。相比权重大小（几 GB），这通常只有几 MB，这就是为什么 PP 可以用低带宽的跨节点互连。
+</details>
 
-> [!question] 怎么选择 M（微批次数量）和 P（流水线阶段数）？
-> - 增大 M：减少气泡，但每个微批次 batch size 变小（可能影响统计效率）
-> - 增大 P：可以训练更大的模型，但气泡增大，需要同步增大 M
-> - 经验法则：$M \geq 4P$（使气泡 < 25%），通常 $M = 8P$ 到 $M = 16P$
+<details class="exercise">
+<summary><span class="q-label">Q</span> <span class="q-text">1F1B 相比 GPipe 的核心优势是什么？</span></summary>
 
-> [!question] Interleaved 1F1B 的气泡公式和代价？
-> 气泡比例 $(P-1)/(V \cdot M + P-1) \approx P/(VM)$，缩小 $V$ 倍。代价：每个微批次的 P2P 通信次数增加 $V$ 倍（更多阶段边界）。实践中 $V = 2$ 是常见选择，平衡气泡与通信开销。
+**不是气泡（两者相近），而是激活内存**。GPipe 需要同时保存 M 个微批次的激活值（$O(M)$ 内存），1F1B 稳态时只有 P 个激活值在飞行中（$O(P)$ 内存）。大模型训练中通常 $M \gg P$，节省激活内存至关重要。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q</span> <span class="q-text">PP 的阶段间传递什么数据？大小是多少？</span></summary>
+
+前向：激活值 $[B/\text{dp}, S/\text{cp}, D]$，大小 $= B \cdot S \cdot D \cdot 2$ 字节（bf16）。反向：同形状的梯度。相比权重大小（几 GB），这通常只有几 MB，这就是为什么 PP 可以用低带宽的跨节点互连。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q</span> <span class="q-text">怎么选择 M（微批次数量）和 P（流水线阶段数）？</span></summary>
+
+- 增大 M：减少气泡，但每个微批次 batch size 变小（可能影响统计效率）
+- 增大 P：可以训练更大的模型，但气泡增大，需要同步增大 M
+- 经验法则：$M \geq 4P$（使气泡 < 25%），通常 $M = 8P$ 到 $M = 16P$
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q</span> <span class="q-text">Interleaved 1F1B 的气泡公式和代价？</span></summary>
+
+气泡比例 $(P-1)/(V \cdot M + P-1) \approx P/(VM)$，缩小 $V$ 倍。代价：每个微批次的 P2P 通信次数增加 $V$ 倍（更多阶段边界）。实践中 $V = 2$ 是常见选择，平衡气泡与通信开销。
+
+</details>
 
 ### 7.6 1F1B 调度伪代码
 
