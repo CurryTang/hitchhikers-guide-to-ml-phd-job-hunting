@@ -572,6 +572,140 @@ fused_recurrent_kda:
   输出当前 token
 ```
 
+<details class="exercise">
+<summary><span class="q-label">Review</span> <span class="q-text">FlashAttention 和 Flash Linear Attention 分别怎么从硬件角度做到 O(n)？</span></summary>
+
+先区分两个不同的 “O(n)”：
+
+| 名字 | 解决的问题 | O(n) 指什么 | 仍然贵在哪里 |
+|---|---|---|---|
+| **FlashAttention** | dense softmax attention 太吃 HBM / activation memory | 不 materialize $N \times N$ attention matrix，activation memory 近似随 sequence length 线性增长 | prefill 计算量仍是 $O(N^2)$，因为每个 query 还是要看所有 key |
+| **Flash Linear Attention / KDA** | recurrent / linear attention 要高效训练和 decode | 如果 state size 固定，序列方向的读写和 decode 成本随 $N$ 线性增长 | state update 的矩阵形状、gate、scan、layout 会决定 Tensor Core / SRAM 利用率 |
+
+### 1. FlashAttention：dense attention，但不把 attention matrix 落到 HBM
+
+普通 attention 的朴素实现会做：
+
+```text
+S = Q K^T          # [N, N]
+P = softmax(S)     # [N, N]
+O = P V            # [N, D]
+```
+
+问题不是只有 FLOPs，而是中间的 `S` 和 `P` 太大。训练时如果把 `[N, N]` attention matrix 写回 HBM，长序列会被 HBM bandwidth 和 activation memory 卡死。
+
+FlashAttention 的思路是 tiled attention：
+
+```text
+for Q tile:
+  keep output accumulator O_tile in registers / SRAM
+  keep online softmax stats m, l
+  for K/V tile:
+    load K_tile, V_tile from HBM to SRAM
+    compute Q_tile @ K_tile^T
+    update online softmax m, l
+    update O_tile
+  write final O_tile once
+```
+
+关键点：
+
+- `Q/K/V` 分 tile 搬进 SRAM / shared memory，尽量复用。
+- softmax 不能等所有 score 都算完再归一化，所以用 online softmax 维护每行的最大值 `m` 和归一化分母 `l`。
+- attention score tile 用完就丢，不把完整 `N x N` score / probability matrix 写回 HBM。
+- backward 可以重算局部 score tile，而不是保存完整 attention matrix。
+
+所以 FlashAttention 的本质是 **IO-aware exact attention**：数学上还是 dense softmax attention，结果不变；硬件上把中间矩阵留在片上 memory，用重算换 HBM 写读。它让 activation memory 从接近 $O(N^2)$ 降到 $O(N)$，但 prefill FLOPs 仍然是 $O(N^2D)$。
+
+### 2. Flash Linear Attention：不做 QK 全连接，而是维护 recurrent state
+
+线性 / delta attention 的计算图不同。它不需要每个 query 和所有历史 key 两两打分，而是维护一个状态：
+
+```text
+state S_t stores compressed history
+for token t:
+  read S_{t-1}
+  compute output o_t
+  write S_t
+```
+
+KDA 的状态更新更复杂，有 gate、beta 和 delta-rule erase/write：
+
+```text
+S_t = update(S_{t-1}, k_t, v_t, gate_t, beta_t)
+o_t = read(S_t, q_t)
+```
+
+如果逐 token 串行跑，训练 prefill 会很慢，因为 sequence 方向有依赖。FLA 的 `chunk_kda` 做的是 chunkwise parallel scan：
+
+```text
+split sequence into chunks
+
+inside each chunk:
+  用 Triton/CUDA tile 计算局部 recurrence
+  产出 chunk 内 outputs
+  产出 chunk final_state
+
+across chunks:
+  对 chunk final_state 做 prefix scan / state carry
+  把前缀 state 传回每个 chunk
+  修正 chunk 内 outputs 或继续计算
+```
+
+这和 FlashAttention 的共同点是：都尽量让热数据留在 SRAM / registers，减少 HBM 往返。不同点是：
+
+- FlashAttention 的 tile 是 `Q tile x K/V tile`，目标是避免写 `N x N` attention matrix。
+- Flash Linear Attention 的 tile 是 `sequence chunk x recurrent state`，目标是把串行 recurrence 变成可并行 scan。
+- FlashAttention 仍读 token-level K/V 历史；KDA decode 只读上一时刻 recurrent state。
+
+### 3. `chunk_kda` 和 `fused_recurrent_kda` 分别服务哪个热路径？
+
+`chunk_kda` 面向 prefill / training：
+
+```text
+输入: q, k, v, gate, beta
+工作: 分 chunk 做并行 scan
+输出: token outputs + final recurrent state
+```
+
+它要关心的是：
+
+- chunk size 是否能让 SRAM 容纳 state tile；
+- state layout 是否让读写 coalesced；
+- gate / beta / qk norm 是否能 fuse 进同一个 kernel，减少额外 launch；
+- backward 是否能复用 chunk states，避免保存所有中间 state。
+
+`fused_recurrent_kda` 面向 decode：
+
+```text
+输入: 当前 token q/k/v/gate/beta + 上一步 state
+工作: 单步 read state -> output -> update state
+输出: 当前 token output + 新 state
+```
+
+它要关心的是：
+
+- 每个 request 的 state handle 是否能快速定位；
+- continuous batching 换 slot 后 state index 是否仍然正确；
+- spec decoding 接受不同 draft length 后，state 如何 commit / rollback；
+- state read/write 是否比 full KV cache 读全历史更便宜。
+
+### 4. 一句话对比
+
+```text
+FlashAttention:
+  我仍然做 dense softmax attention，
+  但用 tiling + online softmax 避免 materialize N^2 attention matrix。
+
+Flash Linear Attention / KDA:
+  我改变 attention 的状态形式，
+  用 recurrent state + chunk scan 避免每个 query 读完整历史。
+```
+
+所以二者都叫 “Flash”，但 flash 的对象不同：FlashAttention flash 掉的是 dense attention 的中间矩阵 IO；FLA/KDA flash 掉的是 linear/recurrent attention 的串行 scan 和 state 读写瓶颈。
+
+</details>
+
 ```mermaid
 flowchart LR
   P["prefill tokens"] --> C["chunk_kda<br/>parallel chunk scan"]
