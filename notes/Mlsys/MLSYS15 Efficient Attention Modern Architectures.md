@@ -490,7 +490,53 @@ vLLM 这类 runtime 需要给不同 attention type 分配不同 cache group。fu
 
 所以 Qwen3-Next 的价值不只在模型结构，也在它逼迫 runtime 支持 hybrid cache。
 
+<details class="exercise">
+<summary><span class="q-label">Review</span> <span class="q-text">Inference runtime 怎么支持 hybrid cache 和 speculative decoding？</span></summary>
+
 这个点在系统设计里很容易被低估：full attention 的 cache 可以按 block table 提交或释放 draft token；linear attention 的 state 是递推结果，不能随便从中间切掉一个 rejected draft token。spec decode 里每次 accepted length 不同，runtime 必须同时维护 paged KV lifecycle 和 recurrent state lifecycle。
+
+可以把每个 request 的 cache 拆成两组：
+
+| cache group | 对应层 | 状态形态 | speculative decode 时怎么处理 |
+|---|---|---|---|
+| `full_attention` | 周期性 Gated Attention / MLA 层 | paged KV block table | draft token 产生 draft KV；accepted token 对应 block 提交；rejected token 对应 block 释放或回收到 free list |
+| `linear_attention` | Gated DeltaNet 层 | conv state + recurrent state | draft token 更新临时 state；accepted length 决定临时 state 的前缀能否成为正式 state；rejected 后必须回滚到最后 accepted state |
+
+一个简化的 runtime 流程：
+
+```text
+1. prefill
+   full layers: 建 paged KV block table
+   linear layers: 跑 chunk_gated_delta_rule，得到初始 recurrent state
+
+2. draft decode
+   full layers: 给 draft tokens 追加 draft KV blocks
+   linear layers: 从正式 state 复制一份 draft state，逐 token recurrent update
+
+3. verify
+   verifier 得到 accepted length a
+
+4. commit / rollback
+   full layers:
+     commit draft KV[0:a]
+     free draft KV[a:]
+
+   linear layers:
+     if a == draft_len:
+       draft final state -> official state
+     else:
+       rollback to checkpoint at accepted prefix
+       or replay accepted tokens from last official state
+
+5. continuous batching
+   request 换 slot 时，paged KV handle 和 recurrent state handle 必须一起迁移
+```
+
+这里 full attention 和 linear attention 的难点不同。KV block 是 append-only 的 token 列表，天然适合按 accepted length 做截断；recurrent state 是递推压缩后的结果，如果只保存最后 state，就不知道中间某个 rejected token 之前的 state。因此 runtime 通常需要 checkpoint accepted-prefix state、保存 draft state chain，或者在 reject 后 replay accepted token。哪种方式更好取决于 draft length、state 大小和 replay 成本。
+
+这也是 hybrid attention 对 vLLM / SGLang 这类 runtime 的新要求：cache manager 不能只懂 paged KV，还要懂不同 layer type 的 state ownership、draft/official 双状态，以及 batch scheduler 中 request-id 到 state-handle 的一致映射。
+
+</details>
 
 ---
 
