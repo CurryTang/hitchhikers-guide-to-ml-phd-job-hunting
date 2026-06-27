@@ -280,12 +280,6 @@ const quantNotes = quantNoteDefinitions.map((definition) => ({
 
 const mlCodingNoteDefinitions = [
   createTutorialDefinition(
-    'ML Coding 0 · CS336 Assignment 1 Roadmap',
-    'MLCoding00 CS336 Roadmap.md',
-    null,
-    { directory: 'MLCoding', category: 'Roadmap', difficulty: 'Medium' },
-  ),
-  createTutorialDefinition(
     'ML Coding 1 · Unicode & Pretokenization',
     'MLCoding01 Unicode Pretokenization.md',
     null,
