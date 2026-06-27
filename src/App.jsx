@@ -1752,8 +1752,13 @@ async function getMermaid() {
 
 function MermaidDiagram({ chart }) {
   const containerRef = useRef(null);
+  const [zoom, setZoom] = useState(1);
   const reactId = useId();
   const diagramId = useMemo(() => `mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`, [reactId]);
+  const zoomPercent = Math.round(zoom * 100);
+  const changeZoom = (delta) => {
+    setZoom((current) => Math.min(2.25, Math.max(0.75, Number((current + delta).toFixed(2)))));
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -1785,7 +1790,53 @@ function MermaidDiagram({ chart }) {
     };
   }, [chart, diagramId]);
 
-  return <div className="mermaid-diagram" ref={containerRef} role="img" aria-label="Mermaid diagram" />;
+  return (
+    <figure className="mermaid-frame">
+      <figcaption className="mermaid-toolbar">
+        <span className="mermaid-label">Diagram</span>
+        <span className="mermaid-zoom-controls" aria-label="Diagram zoom controls">
+          <button
+            type="button"
+            className="diagram-zoom-button"
+            onClick={() => changeZoom(-0.15)}
+            disabled={zoom <= 0.75}
+            aria-label="Zoom out diagram"
+            title="Zoom out"
+          >
+            -
+          </button>
+          <button
+            type="button"
+            className="diagram-zoom-reset"
+            onClick={() => setZoom(1)}
+            aria-label="Reset diagram zoom"
+            title="Reset zoom"
+          >
+            {zoomPercent}%
+          </button>
+          <button
+            type="button"
+            className="diagram-zoom-button"
+            onClick={() => changeZoom(0.15)}
+            disabled={zoom >= 2.25}
+            aria-label="Zoom in diagram"
+            title="Zoom in"
+          >
+            +
+          </button>
+        </span>
+      </figcaption>
+      <div className="mermaid-diagram">
+        <div
+          className="mermaid-canvas"
+          ref={containerRef}
+          role="img"
+          aria-label="Mermaid diagram"
+          style={{ '--diagram-zoom': zoom }}
+        />
+      </div>
+    </figure>
+  );
 }
 
 function CodeBlock({ className = '', source = '' }) {
