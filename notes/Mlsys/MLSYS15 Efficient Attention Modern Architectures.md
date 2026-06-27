@@ -21,7 +21,7 @@ hybrid attention 把上面几类放在同一个模型里，让不同层负责不
 ## 目录
 
 1. [[#一、先用 Associative Memory 统一理解]]
-2. [[#二、2025 之后的主线]]
+2. [[#二、长上下文 Attention 的三条路线]]
 3. [[#三、DeepSeek Dynamic Sparse Attention]]
 4. [[#四、Dynamic Mask Attention 和层次化 sparse routing]]
 5. [[#五、Qwen3-Next：Gated DeltaNet 和周期性 full attention]]
@@ -134,9 +134,9 @@ flowchart LR
 
 ---
 
-## 二、2025 之后的主线
+## 二、长上下文 Attention 的三条路线
 
-2025 之后的变化主要来自两个压力：
+长上下文 attention 的设计压力主要来自两端：
 
 ```text
 1. prompt 变长：1M context、代码仓库、agent 轨迹、RAG 历史。
