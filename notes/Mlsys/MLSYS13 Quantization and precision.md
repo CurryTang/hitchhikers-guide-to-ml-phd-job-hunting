@@ -1608,3 +1608,25 @@ Bool mask 支持 block 级跳过——当整个 `[BLOCK_M, BLOCK_N]` 都被 mask
 | `exp2` 代替 `exp` | 硬件原生支持 `exp2` 更快，配合 `log₂(e)` 预乘 |
 | Bool mask block 级跳过 | 整个 block 被 mask 时跳过全部计算，稀疏 mask 加速显著 |
 | P@V 用 FP16 而非 INT8 | 平衡精度与速度，只在 $QK^T$ 阶段使用 INT8 加速 |
+
+---
+
+## 课后练习题
+
+### 练习 1：weight-only quantization 的收益边界
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">为什么 W4A16 对 decode 有用，但对大 batch prefill 不一定最快？</span></summary>
+
+小 batch decode 常受权重加载带宽限制，4-bit 权重能显著减少 HBM traffic，即使要 dequant 也可能更快。大 batch prefill 更 compute-bound，W4A16 解包后仍然做 FP16/BF16 compute，可能不如 W8A8 直接用 INT8 Tensor Core。
+
+</details>
+
+### 练习 2：KV cache 量化的风险
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">为什么 KV cache 量化比权重量化更敏感？</span></summary>
+
+权重是固定的，可以离线校准和逐层修正；KV cache 是每个请求动态生成的，误差会沿 decode 时间传播，并直接影响 attention score 和上下文读取。长上下文下 KV cache 量化收益很高，但必须控制 scale 粒度、分组方式和 residual window。
+
+</details>

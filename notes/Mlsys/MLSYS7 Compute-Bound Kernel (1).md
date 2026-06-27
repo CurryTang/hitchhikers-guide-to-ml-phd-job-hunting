@@ -1832,8 +1832,24 @@ def gemm_triton(a: torch.Tensor, b: torch.Tensor, alpha: float = 1.0) -> torch.T
 | Tile size 调优     | 手动尝试                        | `@triton.autotune` 自动搜索  |
 | 性能               | 手动优化可达 cuBLAS 90%+          | 通常达到 cuBLAS 80-90%       |
 
+---
 
+## 课后练习题
 
+### 练习 1：GEMM tiling 三层结构
 
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">block tile、warp tile、mma tile 各自解决什么问题？</span></summary>
 
+block tile 决定一个 thread block 负责的 C 矩阵区域，并把 A/B tile 搬到 shared memory 做复用。warp tile 把 block tile 分给多个 warp。mma tile 对应 Tensor Core 指令形状，决定寄存器 fragment 和指令发射。三层 tile 对齐后，才能同时提高数据复用和 Tensor Core 利用率。
 
+</details>
+
+### 练习 2：Triton tl.dot 的检查点
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">怎么确认 Triton matmul 用上 Tensor Core？</span></summary>
+
+看输入 dtype 和 block shape 是否支持 Tensor Core，检查编译后的 PTX/SASS 是否出现 mma 或 wgmma 指令，profiling 里看 tensor pipe utilization。只写 tl.dot 不代表一定高效；shape、alignment、num_warps、num_stages 和 shared memory pipeline 都会影响最终吞吐。
+
+</details>

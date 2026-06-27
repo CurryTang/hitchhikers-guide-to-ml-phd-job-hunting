@@ -307,12 +307,36 @@ Cycle 400: Warp_A: (memory returns)       # A's data has arrived
 Cycle 401: Warp_A: ADD r8, r1, r9   # A resumes execution
 
 ### Importance of Tensor Cores
-H100 total compute distribution:
-┌────────────────────────────────────────────┐
-│ Tensor Core:  990 TFLOPs (bf16)  ████████████████████ 93.7%
-│ CUDA Cores:    66 TFLOPs (fp32)  █ 6.3%
-└────────────────────────────────────────────┘
-Conclusion: in modern ML workloads, Tensor Cores are the real workhorses, while CUDA Cores mainly handle miscellaneous tasks such as ReLU and reduction.
+
+The numbers below use the H100 SXM scale for intuition: dense BF16 Tensor Core throughput is about 990 TFLOPs, while FP32 CUDA Core throughput is roughly 60-66 TFLOPs. The point is not a precise benchmark; it is to show where the main compute path of modern ML workloads lives.
+
+<div class="compute-share-card">
+  <div class="compute-share-head">
+    <span>H100 compute path</span>
+    <strong>GEMM dominates ML throughput</strong>
+  </div>
+  <div class="compute-share-row tensor">
+    <div class="compute-share-label">
+      <strong>Tensor Core</strong>
+      <span>BF16 dense GEMM</span>
+    </div>
+    <div class="compute-share-track"><span class="share-94"></span></div>
+    <div class="compute-share-value">~990 TFLOPs · ~94%</div>
+  </div>
+  <div class="compute-share-row cuda">
+    <div class="compute-share-label">
+      <strong>CUDA Core</strong>
+      <span>FP32 scalar/vector path</span>
+    </div>
+    <div class="compute-share-track"><span class="share-6"></span></div>
+    <div class="compute-share-value">~60-66 TFLOPs · ~6%</div>
+  </div>
+  <div class="compute-share-foot">
+    2:4 structured sparsity can roughly double Tensor Core peak, so the gap can be even larger for sparse-friendly GEMM.
+  </div>
+</div>
+
+The precise conclusion is: Transformer projection, MLP, and attention GEMMs should land on Tensor Cores whenever possible. CUDA Cores still handle address arithmetic, branches, elementwise ops, reductions, softmax, normalization, and glue code. For a compute-bound ML kernel, if the main path is not using Tensor Cores, lower-level scheduling tricks are usually the wrong first priority.
 
 
 Ref: 

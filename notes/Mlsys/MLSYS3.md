@@ -378,3 +378,25 @@ ncu-ui profile.ncu-rep
 
 Ref: 
 Austin et al., "How to Scale Your Model", Google DeepMind, online, 2025.
+
+---
+
+## 课后练习题
+
+### 练习 1：判断 memory-bound / compute-bound
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">给定 FLOPs、Bytes、peak FLOPs 和 bandwidth，怎么判断瓶颈？</span></summary>
+
+先算 arithmetic intensity 等于 FLOPs 除以 Bytes，再算硬件 ridge point 等于 peak FLOPs 除以 bandwidth。如果前者小于后者，性能上界由带宽决定，属于 memory-bound；如果前者大于后者，性能上界接近峰值算力，属于 compute-bound。注意 BF16 matmul 应该用 Tensor Core peak。
+
+</details>
+
+### 练习 2：Roofline 误用
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">为什么只看 achieved TFLOPs 可能误判？</span></summary>
+
+memory-bound kernel 的 achieved TFLOPs 天然低，因为上界由带宽决定。正确做法是同时看 achieved bandwidth、arithmetic intensity、理论 roofline 上界和实际运行时间。reduce 的 TFLOPs 很低可能已经接近带宽上限；GEMM 的 TFLOPs 低才更可能表示 Tensor Core 没吃满。
+
+</details>

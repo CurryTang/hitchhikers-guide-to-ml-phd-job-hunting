@@ -306,14 +306,60 @@ Cycle 3:  Warp_C: MUL r5, r6, r7    # 切换到 C
 Cycle 400: Warp_A: (内存返回)       # A 的数据到了
 Cycle 401: Warp_A: ADD r8, r1, r9   # A 继续执行
 
-### TensorCore的重要性
-H100 总算力分布：
-┌────────────────────────────────────────────┐
-│ Tensor Core:  990 TFLOPs (bf16)  ████████████████████ 93.7%
-│ CUDA Cores:    66 TFLOPs (fp32)  █ 6.3%
-└────────────────────────────────────────────┘
-结论：现代 ML workload 中，Tensor Core 才是主力，CUDA Cores 只负责 ReLU、reduction 等杂活。
+### Tensor Core 的重要性
+
+下面的数字用 H100 SXM 的量级做直觉对比：dense BF16 Tensor Core 约 990 TFLOPs，FP32 CUDA Core 约 60-66 TFLOPs。比例不是为了精确 benchmark，而是说明现代 ML workload 的主计算路径在哪里。
+
+<div class="compute-share-card">
+  <div class="compute-share-head">
+    <span>H100 compute path</span>
+    <strong>GEMM dominates ML throughput</strong>
+  </div>
+  <div class="compute-share-row tensor">
+    <div class="compute-share-label">
+      <strong>Tensor Core</strong>
+      <span>BF16 dense GEMM</span>
+    </div>
+    <div class="compute-share-track"><span class="share-94"></span></div>
+    <div class="compute-share-value">~990 TFLOPs · ~94%</div>
+  </div>
+  <div class="compute-share-row cuda">
+    <div class="compute-share-label">
+      <strong>CUDA Core</strong>
+      <span>FP32 scalar/vector path</span>
+    </div>
+    <div class="compute-share-track"><span class="share-6"></span></div>
+    <div class="compute-share-value">~60-66 TFLOPs · ~6%</div>
+  </div>
+  <div class="compute-share-foot">
+    2:4 structured sparsity can roughly double Tensor Core peak, so the gap can be even larger for sparse-friendly GEMM.
+  </div>
+</div>
+
+结论要更精确地说：Transformer 里的 projection、MLP、attention GEMM 需要尽量落到 Tensor Core；CUDA Core 仍然负责地址计算、分支、elementwise、reduction、softmax、normalization 和各种 glue code。优化 compute-bound kernel 时，如果主路径没有用上 Tensor Core，通常先不要谈更细的调度技巧。
 
 
 Ref: 
 Austin et al., "How to Scale Your Model", Google DeepMind, online, 2025.
+
+---
+
+## 课后练习题
+
+### 练习 1：Tensor Core vs CUDA Core
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">为什么 GEMM 优化首先关心 Tensor Core？</span></summary>
+
+现代训练和推理里的大头是矩阵乘：attention projection、MLP、MoE expert、QK 和 PV 都是 GEMM-like workload。H100 上 BF16 Tensor Core peak 远高于 FP32 CUDA Core peak。如果主计算没有落到 Tensor Core，通常说明数据类型、矩阵形状、layout、alignment 或 kernel lowering 有问题。
+
+</details>
+
+### 练习 2：SM 内部瓶颈定位
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">occupancy 很高但 Tensor Core 利用率低，可能是什么原因？</span></summary>
+
+occupancy 高只表示有足够 warps 常驻，不保证发射的是高吞吐指令。Tensor Core 利用率低可能来自没有使用 mma/wgmma 路径、tile shape 不匹配、global/shared memory 供数不足、register spill、同步过多，或者 kernel 主体其实是 softmax/reduction 这类非 GEMM 操作。
+
+</details>

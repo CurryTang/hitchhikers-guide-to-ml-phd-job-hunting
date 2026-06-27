@@ -1088,3 +1088,25 @@ tl.store(out_ptrs, result.to(tl.float16), mask=mask)
 ```
 
 **融合策略原则**：优先融合 memory-bound 算子（激活函数、bias、残差连接），这些操作的计算/访存比极低，融合收益最大。两个大 GEMM 间的融合需谨慎——可能导致寄存器压力过大，降低 occupancy。
+
+---
+
+## 课后练习题
+
+### 练习 1：online softmax 不变量
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">为什么最大值变化时要缩放历史 sum？</span></summary>
+
+历史 sum 是按旧最大值归一化的。当新最大值出现后，同一批历史项需要改写到新最大值的坐标系下，所以整体乘上 exp(old_max - new_max)。这就是 online softmax 能分块处理且保持数值稳定的关键。
+
+</details>
+
+### 练习 2：FlashAttention 的本质
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">FlashAttention 快在哪里？</span></summary>
+
+它不把完整 attention matrix 写回 HBM，而是按 block 流式计算 QK、online softmax 和 PV，把中间状态留在 SRAM/register。它减少的是 HBM traffic，而不是改变 attention 的数学结果。对长序列来说，省掉 N by N attention matrix 的读写是核心收益。
+
+</details>

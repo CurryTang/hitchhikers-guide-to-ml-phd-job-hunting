@@ -1046,3 +1046,25 @@ Mamba-1的parallel scan有个问题：**无法利用Tensor Core**
 │                                                │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## 课后练习题
+
+### 练习 1：histogram 为什么比 reduce 难？
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">histogram 的并行瓶颈是什么？</span></summary>
+
+reduce 的写入目标固定，histogram 的写入目标由数据值决定。多个线程可能同时更新同一个 bin，导致 atomic serialize。数据分布越偏，热点 bin 越严重。常见优化是先做 warp-local 或 block-local histogram，再合并到 global histogram。
+
+</details>
+
+### 练习 2：scan 的核心不变量
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">parallel scan 为什么要分 upsweep / downsweep？</span></summary>
+
+upsweep 建立局部区间和，downsweep 把前缀偏移传播回每个位置。核心不变量是每个内部节点保存一个区间 aggregate，最后每个元素拿到它左侧所有元素的和。GPU 上通常会做 block 内 scan，再 scan block sums，最后把 block prefix 加回每个 block。
+
+</details>

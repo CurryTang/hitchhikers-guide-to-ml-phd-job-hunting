@@ -210,3 +210,25 @@ CPU                          GPU
 
 Ref: 
 Austin et al., "How to Scale Your Model", Google DeepMind, online, 2025.
+
+---
+
+## 课后练习题
+
+### 练习 1：CUDA extension 文件边界
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">为什么 kernel launch 必须放在 .cu 文件？</span></summary>
+
+CUDA kernel launch 语法只能由 nvcc 解析。普通 C++ compiler 只能处理 binding、函数声明和 CPU 侧 wrapper。真正包含 global kernel 和 launch syntax 的代码应该放进 cuda source 或 .cu 文件。
+
+</details>
+
+### 练习 2：block / thread / warp 的映射
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">一个 block 有 256 threads，会被拆成多少个 warp？</span></summary>
+
+一个 warp 是 32 threads，所以 256 threads 对应 8 个 warps。一个 block 会整体调度到某个 SM 上，block 内 warps 再由 warp scheduler 发射。优化时要同时看 block 数是否提供足够并行度，以及每个 block 是否占用太多 register 或 shared memory。
+
+</details>

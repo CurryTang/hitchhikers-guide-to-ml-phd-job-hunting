@@ -405,3 +405,25 @@ tl.store(out_ptrs, acc.to(out_dtype), mask=mask_out)
 不同算子之间的差异几乎全在**第 2 步的语义解码**和**第 3 步内部的坐标→指针映射**。主框架不变，只插拔解码逻辑。卷积的 `kred → (c,r,s)` 是一个典型例子；attention 的 causal mask 是另一个。
 
 ---
+
+---
+
+## 课后练习题
+
+### 练习 1：implicit GEMM
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">implicit GEMM 和 im2col 的区别是什么？</span></summary>
+
+im2col 会显式把卷积输入展开成大矩阵，方便调用 GEMM，但会产生额外内存写入和更大的中间张量。implicit GEMM 不 materialize 展开矩阵，而是在 kernel 内通过索引计算按需读取对应元素，把卷积映射到 GEMM tile。
+
+</details>
+
+### 练习 2：Conv2D 映射到 GEMM
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">M/N/K 分别是什么？</span></summary>
+
+常见映射是 M 对应输出位置 batch 乘输出高宽，N 对应输出通道，K 对应输入通道乘卷积核高宽。不同 layout 会调整具体顺序，但核心是把输出坐标压成矩阵行列，把输入通道和卷积核空间压成 GEMM 的归约维。
+
+</details>

@@ -1185,3 +1185,25 @@ seq.block_table=[5,12,3]   blocks[5].ref_count=2        kv_cache[0, layer, 5, :,
 - [vLLM: Efficient Memory Management for Large Language Model Serving with PagedAttention](https://arxiv.org/abs/2309.06180)
 - [nano-vllm GitHub](https://github.com/GeeeekExplorer/nano-vllm)
 - [Flash Attention](https://arxiv.org/abs/2205.14135)
+
+---
+
+## 课后练习题
+
+### 练习 1：scheduler 的核心状态
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">一个 LLM engine scheduler 至少要维护什么？</span></summary>
+
+至少要维护 waiting/running/finished request 队列、每个 request 的 prompt length、generated length、KV block table、sampling params、停止条件、当前 batch token budget 和显存水位。好的 scheduler 还要决定 prefill/decode 优先级、何时抢占、何时释放 KV block。
+
+</details>
+
+### 练习 2：如果生成文本互相串了，优先查什么？
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">block manager bug 排查。</span></summary>
+
+优先查 KV block table 和 block 生命周期：block 是否被过早 free、是否被两个 active sequence 复用、copy-on-write 是否正确、request finish 后是否清理、prefill 到 decode 的 position offset 是否一致。文本串扰通常是 KV cache 映射或 position 管理错误。
+
+</details>

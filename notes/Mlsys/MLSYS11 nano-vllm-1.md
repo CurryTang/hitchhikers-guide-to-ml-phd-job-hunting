@@ -648,3 +648,25 @@ v = v.view(-1, num_kv_heads, head_dim)   # [N,  4/tp, d]
 - [The Illustrated Transformer](https://jalammar.github.io/illustrated-transformer/)
 - [Attention Is All You Need](https://arxiv.org/abs/1706.03762)
 - https://github.com/GeeeekExplorer/nano-vllm
+
+---
+
+## 课后练习题
+
+### 练习 1：prefill 和 decode 的差异
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">为什么 LLM serving 要区分 prefill 和 decode？</span></summary>
+
+prefill 一次处理 prompt 的多个 token，矩阵较大，更像 compute-bound GEMM；decode 每步只生成一个新 token，batch 形状小，常受 KV cache 读取、调度和 memory bandwidth 影响。continuous batching 的核心就是把许多 decode request 拼起来，提高 GPU 利用率。
+
+</details>
+
+### 练习 2：Paged KV Cache
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">PagedAttention 为什么要把 KV cache 分页？</span></summary>
+
+不同请求长度不同，直接为每个请求预留最大长度会浪费显存。Paged KV Cache 把 KV 切成固定大小 block，用 block table 映射逻辑 token 到物理 cache block。这样能减少碎片，支持动态增长、复用和 eviction。
+
+</details>

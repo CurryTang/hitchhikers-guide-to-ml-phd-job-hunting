@@ -1752,3 +1752,25 @@ reference
 - [Picotron Tutorial Playlist](https://www.youtube.com/playlist?list=PL-_armZiJvAnhcRr6yTJ0__f3Oi-LLi9S) — 配套视频教程
 
 ---
+
+---
+
+## 十一、练习题
+
+### 练习 1：70B 模型为什么单卡放不下？
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">估算参数和 Adam optimizer state。</span></summary>
+
+70B 参数用 BF16 存权重约 140GB，已经超过单张 80GB H100。训练时 Adam 还需要 FP32 master weight、m、v 等状态，再加 activation 和 gradient，远超单卡。因此需要 FSDP/ZeRO、TP、PP 或混合并行。
+
+</details>
+
+### 练习 2：TP 为什么适合节点内？
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">TP 的通信频率和通信量有什么特点？</span></summary>
+
+Tensor Parallel 会把单层矩阵乘拆到多卡，同一层 forward/backward 中就需要 collective communication。它通信频繁、延迟敏感，最好放在 NVLink/NVSwitch 这种高带宽低延迟节点内拓扑。跨节点做 TP 通常会被 IB latency 和 bandwidth 明显拖慢。
+
+</details>

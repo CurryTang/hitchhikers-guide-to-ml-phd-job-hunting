@@ -630,3 +630,25 @@ __global__ void stream_compaction(
 前两讲中 Reduce、Histogram、Scan 的优化已经覆盖了以上所有原则（coalescing、first add during load、warp shuffle、ILP、grid-stride loop）。本讲的作用是将这些分散在具体例子中的技巧抽象为通用的分析框架。
 
 面对新的 memory-bound kernel 时，首先判断其所属的 Pattern（1-6），然后按对应的原则组合制定优化策略。
+
+---
+
+## 课后练习题
+
+### 练习 1：字节账本
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">优化 memory-bound kernel 前为什么要先算 bytes？</span></summary>
+
+memory-bound kernel 的时间下界近似是 bytes 除以 bandwidth。如果一个优化没有减少 HBM bytes，也没有提高访问合并度或 cache reuse，它很可能不会显著变快。字节账本还会暴露中间 tensor 写回、atomic read-modify-write、重复读取和 padding。
+
+</details>
+
+### 练习 2：什么时候不该 fusion？
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">kernel fusion 一定更快吗？</span></summary>
+
+不一定。Fusion 能减少 HBM 往返和 launch overhead，但也可能增加 register pressure、降低 occupancy、破坏 library GEMM 的 Tensor Core 路径，或者让原本可复用的中间结果变成重复计算。判断标准是节省的 memory traffic 是否大于新增成本。
+
+</details>

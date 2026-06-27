@@ -755,6 +755,105 @@
   margin-inline: auto;
 }
 
+.compute-share-card {
+  margin: 1.1rem 0 1.25rem;
+  padding: 1rem;
+  border: 1px solid rgba(24, 49, 63, 0.18);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(242, 249, 248, 0.95)),
+    repeating-linear-gradient(90deg, rgba(24, 49, 63, 0.06) 0 1px, transparent 1px 48px);
+  box-shadow: 0 10px 22px rgba(31, 53, 66, 0.1);
+}
+
+.compute-share-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+  color: #102735;
+}
+
+.compute-share-head span {
+  color: #7a4c2a;
+  font: 700 0.74rem "IBM Plex Mono", "Courier New", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.compute-share-head strong {
+  font: 700 1.05rem "Space Grotesk", "Avenir Next", sans-serif;
+}
+
+.compute-share-row {
+  display: grid;
+  grid-template-columns: minmax(132px, 0.7fr) minmax(160px, 1.4fr) minmax(132px, 0.8fr);
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.72rem 0;
+  border-top: 1px solid rgba(24, 49, 63, 0.12);
+}
+
+.compute-share-label {
+  display: grid;
+  gap: 0.16rem;
+}
+
+.compute-share-label strong {
+  color: #102735;
+  font: 700 0.95rem "Space Grotesk", "Avenir Next", sans-serif;
+}
+
+.compute-share-label span,
+.compute-share-value,
+.compute-share-foot {
+  color: #526a75;
+  font: 600 0.76rem "IBM Plex Mono", "Courier New", monospace;
+}
+
+.compute-share-track {
+  height: 0.86rem;
+  border-radius: 999px;
+  background: rgba(26, 55, 70, 0.1);
+  overflow: hidden;
+}
+
+.compute-share-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.compute-share-row.tensor .compute-share-track span {
+  background: linear-gradient(90deg, #0f6f8f, #35a98f);
+}
+
+.compute-share-row.cuda .compute-share-track span {
+  background: linear-gradient(90deg, #c9842d, #e0b24f);
+}
+
+.compute-share-track .share-94 {
+  width: 94%;
+}
+
+.compute-share-track .share-6 {
+  width: 6%;
+  min-width: 0.42rem;
+}
+
+.compute-share-value {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.compute-share-foot {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(24, 49, 63, 0.12);
+  line-height: 1.55;
+}
+
 .markdown-body table {
   width: 100%;
   margin: 1rem 0 1.15rem;
@@ -2963,5 +3062,18 @@
   .pow-bits,
   .pow-state-grid {
     grid-template-columns: 1fr;
+  }
+
+  .compute-share-head,
+  .compute-share-row {
+    grid-template-columns: 1fr;
+  }
+
+  .compute-share-head {
+    display: grid;
+  }
+
+  .compute-share-value {
+    text-align: left;
   }
 }

@@ -945,4 +945,26 @@ Profiling (A6000)
 ## Ref
 
 1. [NVIDIA Parallel Reduction (Mark Harris)](https://developer.download.nvidia.com/assets/cuda/files/reduction.pdf)
-2. [CUB Library Documentation](https://nvlabs.github.io/cub/) 
+2. [CUB Library Documentation](https://nvlabs.github.io/cub/)
+
+---
+
+## 课后练习题
+
+### 练习 1：reduce kernel 为什么慢？
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">naive reduce 的主要问题是什么？</span></summary>
+
+常见问题包括 global memory 访问不合并、每轮分支导致 warp divergence、跨 block 聚合依赖 atomic 或多 kernel launch、shared memory bank conflict，以及没有利用 warp-level primitive。优化路线通常是 block 内树形归约，再减少 divergence，最后用 warp shuffle 消除最后一个 warp 的 shared memory 同步。
+
+</details>
+
+### 练习 2：warp shuffle 的作用
+
+<details class="exercise">
+<summary><span class="q-label">答案</span> <span class="q-text">为什么最后 32 个元素适合用 shuffle reduce？</span></summary>
+
+同一个 warp 内线程 lockstep 执行，可以用 shuffle 在寄存器之间直接交换数据，不必写 shared memory，也不需要 block-level barrier。这减少了 shared memory traffic 和同步开销。前提是参与线程 mask 正确，inactive lane 的值不能污染结果。
+
+</details>
