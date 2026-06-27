@@ -2240,10 +2240,10 @@ function App() {
           <section className="home-hero">
             <div className="home-hero-copy">
               <p className="eyebrow">Interview Notes</p>
-              <h1>ML PhD Job Hunting Field Notes</h1>
+              <h1>ML / LLM 技术复习笔记</h1>
               <p>
-                面向机器学习系统与基础设施岗位的复习地图：从 CUDA kernel、分布式训练、
-                LLM inference 到 ML coding、quant 和算法练习，把高频知识点整理成可持续更新的笔记。
+                面向 ML / LLM 领域的技术内容复习笔记，整理 MLSYS、CUDA kernel、分布式训练、
+                LLM inference、ML coding、quant 和算法练习里值得反复看的知识点。
               </p>
               <div className="home-actions">
                 <button className="primary-action" type="button" onClick={() => navigateToSection('mlsys')}>
