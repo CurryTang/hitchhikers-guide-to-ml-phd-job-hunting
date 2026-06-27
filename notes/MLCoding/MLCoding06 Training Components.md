@@ -4,6 +4,9 @@
 
 ## Exercise 1 · Cross-Entropy
 
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
+
 对应 PDF：`cross_entropy`
 
 接口：
@@ -27,7 +30,12 @@ return: scalar mean loss
 uv run pytest -k test_cross_entropy
 ```
 
+</details>
+
 ## Exercise 2 · SGD LR Toy Sweep
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`learning_rate_tuning`
 
@@ -50,7 +58,12 @@ final loss
 converged / oscillated / diverged
 ```
 
+</details>
+
 ## Exercise 3 · AdamW
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`adamw`
 
@@ -82,7 +95,12 @@ v: second moment
 uv run pytest -k test_adamw
 ```
 
+</details>
+
 ## Exercise 4 · AdamW Accounting
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`adamw_accounting`
 
@@ -104,7 +122,12 @@ training time under MFU assumption
 - gradients 和 parameters 同量级。
 - backward pass 约为 forward FLOPs 的 2 倍。
 
+</details>
+
 ## Exercise 5 · Cosine LR with Warmup
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`learning_rate_schedule`
 
@@ -128,7 +151,12 @@ it > cosine_cycle_iters: min_lr
 uv run pytest -k test_get_lr_cosine_schedule
 ```
 
+</details>
+
 ## Exercise 6 · Gradient Clipping
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`gradient_clipping`
 
@@ -150,3 +178,5 @@ clip_grad_norm(parameters, max_l2_norm)
 ```bash
 uv run pytest -k test_gradient_clipping
 ```
+
+</details>

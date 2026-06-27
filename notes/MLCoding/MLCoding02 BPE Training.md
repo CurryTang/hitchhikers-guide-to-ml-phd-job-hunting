@@ -4,6 +4,9 @@
 
 ## Exercise 1 · Toy BPE Merge Simulator
 
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
+
 对应 PDF：`bpe_example`
 
 目标：在小语料上实现朴素 BPE merge loop。
@@ -39,7 +42,12 @@ newest newest newest newest newest newest
 
 目标：前几轮 merge 能复现 handout 结果。
 
+</details>
+
 ## Exercise 2 · Full BPE Trainer
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`train_bpe`
 
@@ -71,7 +79,12 @@ merges: list[tuple[bytes, bytes]]
 uv run pytest tests/test_train_bpe.py
 ```
 
+</details>
+
 ## Exercise 3 · BPE Performance Pass
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 目标：把 naive trainer 优化到能处理 TinyStories。
 
@@ -94,7 +107,12 @@ top bottleneck
 speedup after each optimization
 ```
 
+</details>
+
 ## Exercise 4 · Train TinyStories Tokenizer
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`train_bpe_tinystories`
 
@@ -117,7 +135,12 @@ longest token
 profile bottleneck
 ```
 
+</details>
+
 ## Exercise 5 · Train OpenWebText Tokenizer
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`train_bpe_expts_owt`
 
@@ -137,10 +160,17 @@ vocab_size: 32_000
 | long tokens | simple words / names | URLs, markup, rare strings |
 | compression | easier | more variable |
 
+</details>
+
 ## Common Failure Modes
+
+<details class="exercise">
+<summary><span class="q-label">Pitfalls</span> <span class="q-text">展开常见错误</span></summary>
 
 - special token 被拆开参与 merge。
 - merge 跨 pre-token boundary。
 - pair tie-breaking 不 deterministic。
 - 单个 byte 用 int 表示，导致 vocab/merge 类型对不上。
 - 每轮从头扫描全 corpus，训练速度退化。
+
+</details>

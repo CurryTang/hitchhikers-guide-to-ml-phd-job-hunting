@@ -4,6 +4,9 @@
 
 ## Exercise 1 · Experiment Logger
 
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
+
 对应 PDF：`experiment_log`
 
 记录字段：
@@ -30,7 +33,12 @@ learning curve plot
 experiment log markdown
 ```
 
+</details>
+
 ## Exercise 2 · TinyStories LR Sweep
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`learning_rate`
 
@@ -52,7 +60,12 @@ divergence threshold
 edge-of-stability discussion
 ```
 
+</details>
+
 ## Exercise 3 · Batch Size Sweep
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`batch_size_experiment`
 
@@ -75,7 +88,12 @@ GPU memory
 best LR per batch size
 ```
 
+</details>
+
 ## Exercise 4 · Generate TinyStories Samples
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`generate`
 
@@ -97,7 +115,12 @@ fluency comment
 two factors affecting quality
 ```
 
+</details>
+
 ## Exercise 5 · Remove RMSNorm
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`layer_norm_ablation`
 
@@ -118,7 +141,12 @@ activation / gradient norm observations
 normalization commentary
 ```
 
+</details>
+
 ## Exercise 6 · Post-Norm Transformer
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`pre_norm_ablation`
 
@@ -142,7 +170,12 @@ stability notes
 best LR if retuned
 ```
 
+</details>
+
 ## Exercise 7 · NoPE vs RoPE
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`no_pos_emb`
 
@@ -163,7 +196,12 @@ sample generation
 position information discussion
 ```
 
+</details>
+
 ## Exercise 8 · SwiGLU vs SiLU FFN
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`swiglu_ablation`
 
@@ -184,7 +222,12 @@ validation loss comparison
 gating discussion
 ```
 
+</details>
+
 ## Exercise 9 · OpenWebText Run
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`main_experiment`
 
@@ -201,7 +244,12 @@ fluency analysis
 
 OpenWebText 更杂、更长尾、更难压缩；同样模型和 compute budget 下，loss 和 generation quality 不能直接和 TinyStories 等价比较。
 
+</details>
+
 ## Exercise 10 · Leaderboard-Style Modification
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`leaderboard`
 
@@ -224,3 +272,5 @@ wall-clock-bounded learning curve
 description of modification
 evidence the modification helped
 ```
+
+</details>

@@ -4,6 +4,9 @@
 
 ## Exercise 1 · Tokenizer Class
 
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
+
 对应 PDF：`tokenizer`
 
 接口：
@@ -31,7 +34,12 @@ decode(ids: list[int]) -> str
 uv run pytest tests/test_tokenizer.py
 ```
 
+</details>
+
 ## Exercise 2 · BPE Encoding Trace
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 用一个小 vocab 和 merges 手动 trace：
 
@@ -54,7 +62,12 @@ merge only applies inside one pre-token
 unknown text still encodable because byte vocab is complete
 ```
 
+</details>
+
 ## Exercise 3 · Streaming Encode
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 目标：对不能一次放入内存的大文件做 lazy tokenization。
 
@@ -76,7 +89,12 @@ Iterator[int]
 - special token / document boundary 是天然 safe split。
 - 如果随意按字符数切 chunk，可能改变 pre-token 和 merge 结果。
 
+</details>
+
 ## Exercise 4 · Compression Ratio Experiment
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`tokenizer_experiments`
 
@@ -98,7 +116,12 @@ estimated time for 825GB corpus
 | OWT sample | TinyStories 10K | bytes/token |
 | OWT sample | OWT 32K | bytes/token |
 
+</details>
+
 ## Exercise 5 · Token ID Serialization
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 目标：把 train/dev text 编码成 token id array。
 
@@ -116,9 +139,16 @@ uint16 halves storage compared with int32
 token ids are non-negative integers
 ```
 
+</details>
+
 ## Common Failure Modes
+
+<details class="exercise">
+<summary><span class="q-label">Pitfalls</span> <span class="q-text">展开常见错误</span></summary>
 
 - decode 时逐 token decode，而不是先拼 bytes 再 decode。
 - special token 没有追加进 vocab。
 - `encode_iterable` silently materializes whole file。
 - streaming chunk 改变 tokenization。
+
+</details>

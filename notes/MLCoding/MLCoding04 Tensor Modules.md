@@ -4,6 +4,9 @@
 
 ## Exercise 1 · Tensor Shape Gym
 
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
+
 目标：练习 batch-like dimensions、einsum、rearrange。
 
 练习项：
@@ -25,7 +28,12 @@ einsum / rearrange pattern
 toy sanity check
 ```
 
+</details>
+
 ## Exercise 2 · Linear Module
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`linear`
 
@@ -49,7 +57,12 @@ forward(x) -> (..., out_features)
 uv run pytest -k test_linear
 ```
 
+</details>
+
 ## Exercise 3 · Embedding Module
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`embedding`
 
@@ -72,7 +85,12 @@ forward(token_ids) -> token_ids.shape + (embedding_dim,)
 uv run pytest -k test_embedding
 ```
 
+</details>
+
 ## Exercise 4 · RMSNorm
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`rmsnorm`
 
@@ -98,7 +116,12 @@ shape preserved
 scaling input mostly cancels after normalization
 ```
 
+</details>
+
 ## Exercise 5 · SwiGLU Feed-Forward
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`positionwise_feedforward`
 
@@ -121,7 +144,12 @@ then W2 down projection
 uv run pytest -k test_swiglu
 ```
 
+</details>
+
 ## Exercise 6 · RoPE
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`rope`
 
@@ -145,8 +173,15 @@ forward(x, token_positions) -> same shape
 uv run pytest -k test_rope
 ```
 
+</details>
+
 ## Debug Checklist
+
+<details class="exercise">
+<summary><span class="q-label">Debug</span> <span class="q-text">展开检查项</span></summary>
 
 - 所有 module 都要支持 `device` / `dtype`。
 - 明确标注 sequence dimension 和 head dimension，并用断言检查 shape。
 - 用小 shape 打印中间 tensor，比直接跑完整模型更快。
+
+</details>

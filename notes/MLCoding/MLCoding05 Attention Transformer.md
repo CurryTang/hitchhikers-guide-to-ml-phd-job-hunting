@@ -4,6 +4,9 @@
 
 ## Exercise 1 · Stable Softmax
 
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
+
 对应 PDF：`softmax`
 
 接口：
@@ -24,7 +27,12 @@ softmax(x, dim) -> same shape
 uv run pytest -k test_softmax_matches_pytorch
 ```
 
+</details>
+
 ## Exercise 2 · Scaled Dot-Product Attention
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`scaled_dot_product_attention`
 
@@ -52,7 +60,12 @@ uv run pytest -k test_scaled_dot_product_attention
 uv run pytest -k test_4d_scaled_dot_product_attention
 ```
 
+</details>
+
 ## Exercise 3 · Causal MHA
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`multihead_self_attention`
 
@@ -81,7 +94,12 @@ uv run pytest -k test_multihead_self_attention
 uv run pytest -k test_multihead_self_attention_with_rope
 ```
 
+</details>
+
 ## Exercise 4 · Transformer Block
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`transformer_block`
 
@@ -104,7 +122,12 @@ out = y + FFN(RMSNorm(y))
 uv run pytest -k test_transformer_block
 ```
 
+</details>
+
 ## Exercise 5 · Transformer LM
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`transformer_lm`
 
@@ -131,7 +154,12 @@ logits: (batch_size, sequence_length, vocab_size)
 uv run pytest -k test_transformer_lm
 ```
 
+</details>
+
 ## Exercise 6 · Resource Accounting
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`transformer_accounting`
 
@@ -168,8 +196,15 @@ GPT-2 XL
 GPT-2 XL with context_length = 16,384
 ```
 
+</details>
+
 ## Debug Checklist
+
+<details class="exercise">
+<summary><span class="q-label">Debug</span> <span class="q-text">展开检查项</span></summary>
 
 - causal mask 的 True/False 语义要和 SDPA 实现一致。
 - RoPE 只作用于 Q/K，不作用于 V。
 - LM head 输出是 logits，不是 softmax probabilities。
+
+</details>

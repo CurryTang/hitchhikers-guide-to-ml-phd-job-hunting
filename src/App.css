@@ -908,8 +908,8 @@
 .markdown-body details.exercise {
   margin: 1.1rem 0;
   border: 1px solid rgba(15, 80, 115, 0.22);
-  border-radius: 14px;
-  background: rgba(240, 249, 255, 0.7);
+  border-radius: 8px;
+  background: rgba(247, 252, 254, 0.88);
   overflow: hidden;
   transition: box-shadow 180ms ease;
 }
@@ -920,7 +920,7 @@
 
 .markdown-body details.exercise > summary {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.6rem;
   padding: 0.85rem 1.1rem;
   cursor: pointer;
@@ -942,7 +942,6 @@
   color: #3591b8;
   transition: transform 200ms ease;
   flex-shrink: 0;
-  margin-top: 0.1em;
 }
 
 .markdown-body details.exercise[open] > summary::before {
@@ -971,16 +970,18 @@
 }
 
 .markdown-body details.exercise > *:not(summary) {
-  padding: 0.6rem 1.3rem 1rem;
+  margin-left: 1.15rem;
+  margin-right: 1.15rem;
+}
+
+.markdown-body details.exercise > summary + * {
   border-top: 1px solid rgba(15, 80, 115, 0.1);
+  margin-top: 0;
+  padding-top: 0.95rem;
 }
 
-.markdown-body details.exercise > *:not(summary) p:first-child {
-  margin-top: 0.4rem;
-}
-
-.markdown-body details.exercise > *:not(summary) p:last-child {
-  margin-bottom: 0;
+.markdown-body details.exercise > :last-child {
+  margin-bottom: 1rem;
 }
 
 .practice-card {

@@ -4,6 +4,9 @@
 
 ## Exercise 1 · Next-Token Batch Sampler
 
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
+
 对应 PDF：`data_loading`
 
 接口：
@@ -32,7 +35,12 @@ y: (batch_size, context_length)
 uv run pytest -k test_get_batch
 ```
 
+</details>
+
 ## Exercise 2 · Checkpoint Save / Load
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`checkpointing`
 
@@ -66,7 +74,12 @@ path and file-like object both work
 uv run pytest -k test_checkpointing
 ```
 
+</details>
+
 ## Exercise 3 · Full Training Script
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`training_together`
 
@@ -110,7 +123,12 @@ Debug milestones：
 | validation eval | no gradient graph retained |
 | checkpoint resume | curve continues without reset |
 
+</details>
+
 ## Exercise 4 · Autoregressive Decoder
+
+<details class="exercise">
+<summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
 
 对应 PDF：`decoding`
 
@@ -153,3 +171,5 @@ token count
 stop reason
 sampling parameters
 ```
+
+</details>
