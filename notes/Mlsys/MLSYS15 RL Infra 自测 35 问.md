@@ -402,31 +402,27 @@ $$
 ## C · 单机与显存（Q20/Q22/Q26）
 
 <details class="exercise">
-<summary><span class="q-label">Q20</span> <span class="q-text">不考虑 CPU offload，GRPO 训练时显存里有几份模型？各优化能节省多少？</span></summary>
+<summary><span class="q-label">Q20</span> <span class="q-text">GRPO 训练时显存压力应该怎么拆分？</span></summary>
 
-见 [[MLSYS14 Post-Training Infra#6.1 显存账本：GRPO 训练时显存里有几份模型？]] 的完整分析。
+不要用固定的“几份模型”背答案。GRPO 的显存压力取决于 colocated / disaggregated 布局、FSDP / ZeRO 分片策略、reference 是否共享、rollout engine 是否常驻，以及 rollout 的 context length、group size 和 KV cache 策略。
 
-**快速回答**：
+更稳的拆法是按四类状态回答：
 
-以 7B 模型为例，不加任何优化的显存组成：
+| 类别 | 主要内容 | 优化方向 |
+|------|----------|----------|
+| 训练侧模型状态 | actor 参数、梯度、optimizer states，可能还有 reference / old policy logprob 相关状态 | FSDP / ZeRO-3 分片、optimizer state sharding、reference sharing |
+| 推理侧状态 | rollout engine 权重副本、KV cache、paged cache metadata、request buffers | rollout/training 共址复用权重、prefix sharing、KV paging、sleep/offload |
+| 反向传播状态 | activation、microbatch buffer、sequence packing buffer | activation checkpointing、sequence packing、microbatch 调整 |
+| 瞬时通信 buffer | all-gather、reduce-scatter、weight sync bucket、reshard buffer | bucket size 调参、overlap communication、分桶权重同步 |
 
-| 组件 | 显存 |
-|------|------|
-| Actor 参数（BF16） | 14 GB |
-| Actor 梯度（FP32） | 28 GB |
-| Adam 优化器状态（FP32 ×2） | 56 GB |
-| Reference 参数（BF16） | 14 GB |
-| Rollout 引擎权重副本（BF16） | 14 GB |
-| **合计（不含 KV/激活）** | **~126 GB** |
-
-**最有效的优化**：ZeRO-3 把梯度和优化器状态分摊到 N 卡（N=8 时每卡 ~15.75 GB，不含 KV/激活）；再加 CPU offload Adam 可以继续省 56 GB（但带来 PCIe 带宽瓶颈）。
+GRPO 相比 PPO 省掉 critic，但 group sampling 会把每个 prompt 的 completion 数放大到 G 条，KV cache、activation 和 reward 计算等待时间都会上升。所以 GRPO 的总显存压力不一定比 PPO 低，关键看 critic 节省是否大于 rollout/KV/activation 放大。
 
 </details>
 
 <details class="exercise">
 <summary><span class="q-label">Q22</span> <span class="q-text">INT8 vs FP8，训练和推理分别推荐哪种精度？权衡是什么？</span></summary>
 
-见 [[MLSYS14 Post-Training Infra#6.6 精度专题：INT8 vs FP8]] 的完整分析。
+见 [[MLSYS14 Post-Training Infra#6.5 精度专题：INT8 vs FP8]] 的完整分析。
 
 **快速回答**：
 
@@ -440,7 +436,7 @@ $$
 <details class="exercise">
 <summary><span class="q-label">Q26</span> <span class="q-text">大规模多节点 RL 训练中 backpropagation 是如何实现的？</span></summary>
 
-见 [[MLSYS14 Post-Training Infra#6.7 MoE × RL]] 中的多节点 backpropagation 部分。
+见 [[MLSYS14 Post-Training Infra#6.6 MoE × RL]] 中的多节点 backpropagation 部分。
 
 **快速回答**：
 
@@ -482,24 +478,24 @@ $$
 <details class="exercise">
 <summary><span class="q-label">Q23</span> <span class="q-text">RL rollout 的长尾问题是什么？如何解决？</span></summary>
 
-见 [[MLSYS14 Post-Training Infra#6.2 长尾 Rollout 与对策]] 的完整分析。
+见 [[MLSYS14 Post-Training Infra#6.1 长尾 Rollout 与对策]] 的完整分析。
 
 **快速回答**：
 
 长尾问题 = 批内少数超长序列拖慢整批。1% 的 32K token 序列可以让 99% 的 GPU 闲置 4× 时间。
 
 **解法优先级**：
-1. **Partial rollout / interruptible rollout**（AReaL）：根本解法，最有效
-2. **Over-sampling + earliest-completion 选取**：生成 G'>G 个，取最先完成的 G 个
-3. **Length-aware scheduling**（SGLang 内置）：短序列优先调度，减少头部阻塞
-4. **截断 + 零 reward**（DAPO）：超长直接截断，给 0 reward，不丢弃
+1. **Partial rollout / interruptible rollout**：适合 agent、多轮工具调用和长推理链，能保留慢样本的训练信号，但要维护 prefix、policy version 和恢复状态。
+2. **Length-aware scheduling**：适合 prompt 长度差异明显、任务形态稳定的在线 rollout，基本不改变训练分布。
+3. **Over-sampling + earliest-completion 选取**：适合要求 step time 稳定的大规模 GRPO，但要防止模型偏向短答案。
+4. **截断 / rejection sampling**：适合早期实验和格式严格任务，工程最简单，但会浪费采样算力并可能引入分布偏差。
 
 </details>
 
 <details class="exercise">
 <summary><span class="q-label">Q24</span> <span class="q-text">Continuous batching 在 RL 训练中引入了哪些新问题？vLLM 和 SGLang 有何差异？</span></summary>
 
-见 [[MLSYS14 Post-Training Infra#6.3 Continuous Batching 在 RL 里的新问题]] 的完整分析。
+见 [[MLSYS14 Post-Training Infra#6.2 Continuous Batching 在 RL 里的新问题]] 的完整分析。
 
 **核心差异总结**：
 
@@ -648,7 +644,7 @@ $$
 <details class="exercise">
 <summary><span class="q-label">Q29</span> <span class="q-text">Expert Parallelism 如何影响 MoE 的吞吐？</span></summary>
 
-见 [[MLSYS14 Post-Training Infra#6.7 MoE × RL]] 的 EP 分析。
+见 [[MLSYS14 Post-Training Infra#6.6 MoE × RL]] 的 EP 分析。
 
 **核心公式**：EP 的关键 overhead 是 AllToAll（token routing），其通信量为：
 $$
@@ -667,7 +663,7 @@ $$
 <details class="exercise">
 <summary><span class="q-label">Q30</span> <span class="q-text">长上下文训练中 compute-communication overlap 如何设计？Megatron 和 FSDP 在并行策略上的差异？</span></summary>
 
-见 [[MLSYS14 Post-Training Infra#6.7 MoE × RL]] 的长上下文和并行策略分析。
+见 [[MLSYS14 Post-Training Infra#6.6 MoE × RL]] 的长上下文和并行策略分析。
 
 **Compute-Communication Overlap 的核心技术**：
 
