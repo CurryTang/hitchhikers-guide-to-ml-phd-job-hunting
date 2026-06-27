@@ -295,6 +295,22 @@ $$
 
 这里 `v` 提供内容特征，`\Delta` 和 `A` 提供位置相关的参数化偏置，`top-w` 决定每个 query 真正保留的稀疏连接。关键点是它把“内容”和“位置”同时放进 mask 生成器，而不是只靠局部窗口。
 
+更直观的对比是把两者都写成“先决定看哪里，再做 attention”：
+
+| 方法 | 选择信号 | 选择结果 | 主 attention 怎么算 |
+|---|---|---|---|
+| **DeepSeek DSA** | indexer query/key 打分：$I_{t,s}=\sum_j w^I_{t,j}\operatorname{ReLU}(q^I_{t,j}\cdot k^I_s)$ | 每个 query 选 token set：$\mathcal{T}_t=\operatorname{TopK}_s(I_{t,s})$ | 只在选中的 token 上做 softmax：$o_t=\sum_{s\in\mathcal{T}_t}\operatorname{softmax}_{s\in\mathcal{T}_t}(q_tk_s^T)v_s$ |
+| **DMA** | value 表征 + 位置参数生成 mask score：$m_{b_q,b_k}=g(V_{b_k}, \Delta_{b_q,b_k})$ | 每个 query block / tile 得到 binary 或 sparse mask：$M_{b_q,b_k}\in\{0,1\}$ | mask 加到 QK score / tile 上：$\operatorname{softmax}(QK^T/\sqrt d + (1-M)(-\infty))V$ |
+
+所以 DMA 里的可训练 mask/gate **不是直接乘在 V 上**。V 提供内容特征，用来生成“哪些 key/value tile 值得保留”的 mask；真正执行 sparse attention 时，这个 mask 作用在 QK score 或 block/tile 调度上：被 mask 掉的位置相当于 attention score 加 `-inf`，kernel 也可以直接跳过对应 tile 的 K/V 加载。保留下来的 tile 仍然用正常的 QK score 和 V 做 attention output。
+
+两者的主要区别：
+
+- **DSA 是 token-level retrieval**：先从完整历史里找 top-k token / latent entry，再在这个集合上做 softmax。它更像“内容检索器 + sparse MLA attention”。
+- **DMA 是 mask-level sparsification**：先生成可训练的 content-aware sparse mask，再让 tiled attention kernel 按 mask 跳过无效区域。它更像“可学习稀疏模式 + block sparse kernel”。
+- **DSA 的难点在 selector 是否选对 token**，以及 top-k/gather 是否比省下的 KV 读取更便宜。
+- **DMA 的难点在 mask 是否可训练且硬件友好**，因为不规则 mask 如果不能变成连续 tile skip，理论稀疏率也不一定变成实际加速。
+
 实现上有三个关键点：
 
 1. mask 是可训练的，前向和反向都保留梯度路径，不只是推理时手写规则。
