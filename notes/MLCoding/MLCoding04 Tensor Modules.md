@@ -4,7 +4,7 @@
 
 使用方式：每题先看目标和验收标准，再按“解题模板”把 TODO 补完整；最后展开参考答案，对照边界条件、sanity checks 和实现细节。
 
-## Exercise 1 · Tensor Shape Gym
+## Warmup · Tensor Shape Gym
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
@@ -30,7 +30,7 @@ einsum / rearrange pattern
 toy sanity check
 ```
 
-解题模板：
+练习模板：
 
 ```python
 def shape_gym():
@@ -90,7 +90,7 @@ assert x2.shape == x.shape
 
 </details>
 
-## Exercise 2 · Linear Module
+## Exercise 1 · Linear Module
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
@@ -178,7 +178,7 @@ assert m(x).shape == (2, 3, 7)
 
 </details>
 
-## Exercise 3 · Embedding Module
+## Exercise 2 · Embedding Module
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
@@ -253,7 +253,7 @@ class Embedding(nn.Module):
 
 </details>
 
-## Exercise 4 · RMSNorm
+## Exercise 3 · RMSNorm
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
@@ -338,7 +338,7 @@ assert y.dtype == x.dtype
 
 </details>
 
-## Exercise 5 · SwiGLU Feed-Forward
+## Exercise 4 · SwiGLU Feed-Forward
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
@@ -417,7 +417,7 @@ class SwiGLU(nn.Module):
 
 </details>
 
-## Exercise 6 · RoPE
+## Exercise 5 · RoPE
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>

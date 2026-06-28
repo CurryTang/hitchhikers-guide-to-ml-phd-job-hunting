@@ -87,7 +87,7 @@ CE = -log softmax(logits)[target]
 
 </details>
 
-## Exercise 2 · SGD LR Toy Sweep
+## Lab · SGD LR Toy Sweep
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
@@ -113,7 +113,7 @@ final loss
 converged / oscillated / diverged
 ```
 
-解题模板：
+实验模板：
 
 ```python
 def run_sgd_lr(lr: float, steps: int = 10) -> list[float]:
@@ -173,7 +173,7 @@ x_{t+1} = (1 - 2lr) x_t
 
 </details>
 
-## Exercise 3 · AdamW
+## Exercise 2 · AdamW
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
@@ -286,7 +286,7 @@ class AdamW(torch.optim.Optimizer):
 
 </details>
 
-## Exercise 4 · AdamW Accounting
+## Exercise 3 · AdamW Accounting
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
@@ -377,7 +377,7 @@ def training_time_seconds(total_flops, peak_flops, mfu):
 
 </details>
 
-## Exercise 5 · Cosine LR with Warmup
+## Exercise 4 · Cosine LR with Warmup
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
@@ -455,7 +455,7 @@ it>cosine_cycle_iters -> min_lr
 
 </details>
 
-## Exercise 6 · Gradient Clipping
+## Exercise 5 · Gradient Clipping
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>

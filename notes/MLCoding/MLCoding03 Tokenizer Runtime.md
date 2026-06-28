@@ -152,7 +152,7 @@ def decode(self, ids: list[int]) -> str:
 
 </details>
 
-## Exercise 2 · BPE Encoding Trace
+## Trace Lab · BPE Encoding Trace
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
@@ -178,7 +178,7 @@ merge only applies inside one pre-token
 unknown text still encodable because byte vocab is complete
 ```
 
-解题模板：
+Trace 模板：
 
 ```python
 def trace_bpe_token(token: str, tokenizer: Tokenizer) -> list[int]:
@@ -264,7 +264,7 @@ def trace_bpe_token(token: str, tokenizer):
 
 </details>
 
-## Exercise 3 · Streaming Encode
+## Exercise 2 · Streaming Encode
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
@@ -359,7 +359,7 @@ ids_joined = tok.encode("".join(docs))
 
 </details>
 
-## Exercise 4 · Compression Ratio Experiment
+## Experiment · Compression Ratio
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
@@ -384,7 +384,7 @@ estimated time for 825GB corpus
 | OWT sample | TinyStories 10K | bytes/token |
 | OWT sample | OWT 32K | bytes/token |
 
-解题模板：
+实验模板：
 
 ```python
 def tokenizer_report(tokenizer: Tokenizer, text: str) -> dict:
@@ -461,7 +461,7 @@ hours = seconds / 3600
 
 </details>
 
-## Exercise 5 · Token ID Serialization
+## Exercise 3 · Token ID Serialization
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>

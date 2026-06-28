@@ -2,9 +2,9 @@
 
 对应 CS336 Assignment 1：Section 2.1-2.4。
 
-使用方式：每题先看目标和验收标准，再按“解题模板”把 TODO 补完整；最后展开参考答案，对照边界条件、sanity checks 和实现细节。
+使用方式：`Lab` 用来建立背景直觉，不算正式 coding 题；`Exercise` 才是需要自己补完整实现的题。先按模板写，再展开参考答案对照边界条件。
 
-## Exercise 1 · Unicode Probe
+## Lab · Unicode Probe
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
@@ -32,7 +32,7 @@ visible printing behavior
 - `repr(x)` 和 `print(x)` 显示目的不同。
 - control character 可能存在但不可见。
 
-解题模板：
+观察模板：
 
 ```python
 def inspect_unicode_codepoint(cp: int) -> dict:
@@ -86,7 +86,7 @@ assert inspect_unicode_codepoint(0x1F600)["utf8_bytes"] == [240, 159, 152, 128]
 
 </details>
 
-## Exercise 2 · UTF-8 Encoding Lab
+## Lab · UTF-8 Encoding
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
@@ -121,7 +121,7 @@ single-byte decoding a multi-byte character is wrong
 invalid two-byte sequence raises or replaces
 ```
 
-解题模板：
+观察模板：
 
 ```python
 def compare_encodings(text: str) -> list[dict]:
@@ -201,7 +201,7 @@ def _try_decode(raw, encoding, errors):
 
 </details>
 
-## Exercise 3 · GPT-2 Style Pretokenizer
+## Exercise 1 · GPT-2 Style Pretokenizer
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>

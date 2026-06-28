@@ -328,7 +328,7 @@ for _ in range(num_merges):
 
 </details>
 
-## Exercise 4 · Train TinyStories Tokenizer
+## Experiment · Train TinyStories Tokenizer
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
@@ -354,7 +354,7 @@ longest token
 profile bottleneck
 ```
 
-解题模板：
+实验模板：
 
 ```python
 def train_tinystories_tokenizer(data_path: str, out_dir: str):
@@ -413,7 +413,7 @@ metrics:
 
 </details>
 
-## Exercise 5 · Train OpenWebText Tokenizer
+## Experiment · Train OpenWebText Tokenizer
 
 <details class="exercise">
 <summary><span class="q-label">参考</span> <span class="q-text">展开目标、接口与验收标准</span></summary>
@@ -436,7 +436,7 @@ vocab_size: 32_000
 | long tokens | simple words / names | URLs, markup, rare strings |
 | compression | easier | more variable |
 
-解题模板：
+实验模板：
 
 ```python
 def train_owt_tokenizer(data_path: str, out_dir: str):
