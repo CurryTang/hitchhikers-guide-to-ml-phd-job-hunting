@@ -1068,3 +1068,34 @@ reduce 的写入目标固定，histogram 的写入目标由数据值决定。多
 upsweep 建立局部区间和，downsweep 把前缀偏移传播回每个位置。核心不变量是每个内部节点保存一个区间 aggregate，最后每个元素拿到它左侧所有元素的和。GPU 上通常会做 block 内 scan，再 scan block sums，最后把 block prefix 加回每个 block。
 
 </details>
+
+
+### 复习自测：看这组题能不能讲完整篇
+
+<details class="exercise">
+<summary><span class="q-label">Q3</span> <span class="q-text">histogram 和 reduce 都是聚合，为什么 histogram 更难？</span></summary>
+
+reduce 的写入位置通常可控，block 内可以先局部归约再写少量结果；histogram 的 bin 由数据决定，多个 thread 可能同时写同一个 bin，需要 atomic 或 privatization。难点在冲突、skew、atomic 热点和局部 histogram 合并。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q4</span> <span class="q-text">scan 能并行的前提是什么？</span></summary>
+
+scan 依赖一个 associative operator。普通加法满足结合律，所以可以先局部 prefix，再合并 block summary，再把前缀偏移加回去。很多 recurrence 也能改写成 associative pair operation；如果算子不满足结合律，就不能直接套 parallel prefix。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q5</span> <span class="q-text">exclusive scan 和 inclusive scan 有什么差别？</span></summary>
+
+inclusive scan 的第 `i` 个输出包含 `x_i`；exclusive scan 的第 `i` 个输出只包含 `x_0 ... x_{i-1}`。很多 compaction 和 prefix offset 场景需要 exclusive scan，因为它直接给每个元素写入目标位置。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q6</span> <span class="q-text">什么时候用 privatized histogram？代价是什么？</span></summary>
+
+当全局 atomic 冲突严重、bin 数不大时，可以让每个 block/warp 维护私有 histogram，再做合并。它减少全局 atomic 热点，但增加 shared memory 或临时 buffer 使用，并多出一次 merge。如果 bin 很多或分布均匀，privatization 不一定划算。
+
+</details>

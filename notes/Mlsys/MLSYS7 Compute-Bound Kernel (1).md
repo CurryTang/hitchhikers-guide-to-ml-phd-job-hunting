@@ -1853,3 +1853,34 @@ block tile 决定一个 thread block 负责的 C 矩阵区域，并把 A/B tile 
 看输入 dtype 和 block shape 是否支持 Tensor Core，检查编译后的 PTX/SASS 是否出现 mma 或 wgmma 指令，profiling 里看 tensor pipe utilization。只写 tl.dot 不代表一定高效；shape、alignment、num_warps、num_stages 和 shared memory pipeline 都会影响最终吞吐。
 
 </details>
+
+
+### 复习自测：看这组题能不能讲完整篇
+
+<details class="exercise">
+<summary><span class="q-label">Q3</span> <span class="q-text">GEMM tiling 为什么要分 global/shared/register 三层？</span></summary>
+
+global memory 带宽远低于 Tensor Core 消耗速度，所以不能让每个输出元素都直接从 HBM 读完整 K 维。shared memory 负责让一个 A/B tile 被 block 内多次复用；register fragment 负责让每个 warp/lane 累加自己的 C 子块。三层 tiling 的目标是提高数据复用，让 Tensor Core 不断粮。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q4</span> <span class="q-text">Triton 里 `tl.dot` 写了以后，为什么还要关心 block size？</span></summary>
+
+`tl.dot` 只是表达矩阵乘，性能仍取决于 `BLOCK_M/N/K`、num_warps、num_stages、dtype、alignment 和寄存器压力。tile 太小吃不满 Tensor Core，太大可能 spill 或降低 occupancy；`BLOCK_K` 还影响 shared memory pipeline 和 K 维循环次数。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q5</span> <span class="q-text">compute-bound GEMM 的瓶颈排查优先级是什么？</span></summary>
+
+先确认 Tensor Core 指令路径，再看 Tensor Core utilization、eligible warps、shared memory load/store、register spill 和 occupancy。不要只看总耗时；要判断是算力没吃满、数据没供上、还是 tile/launch overhead 占比太高。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q6</span> <span class="q-text">为什么写高性能 GEMM 时 layout 和 stride 很重要？</span></summary>
+
+layout 决定 global load 是否连续、是否能 vectorize、是否满足 Tensor Core 对齐要求，也决定 shared memory 写入是否容易出现 bank conflict。stride 错误不仅慢，还可能让逻辑矩阵和物理内存不一致，导致结果错误。
+
+</details>

@@ -670,3 +670,34 @@ prefill 一次处理 prompt 的多个 token，矩阵较大，更像 compute-boun
 不同请求长度不同，直接为每个请求预留最大长度会浪费显存。Paged KV Cache 把 KV 切成固定大小 block，用 block table 映射逻辑 token 到物理 cache block。这样能减少碎片，支持动态增长、复用和 eviction。
 
 </details>
+
+
+### 复习自测：看这组题能不能讲完整篇
+
+<details class="exercise">
+<summary><span class="q-label">Q3</span> <span class="q-text">decode 阶段为什么常比 prefill 更难吃满 GPU？</span></summary>
+
+decode 每个 request 每轮通常只新增 1 个 token，单个矩阵形状小，还要读越来越长的 KV cache。没有 continuous batching 时 GPU 会被小 batch 和频繁调度拖慢；prefill 则一次处理整段 prompt，更容易形成大 GEMM。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q4</span> <span class="q-text">GQA 节省 KV cache 的公式怎么写？</span></summary>
+
+KV cache 大小正比于 `num_layers * tokens * num_kv_heads * head_dim * 2 * dtype_bytes`。MHA 的 `num_kv_heads = num_q_heads`；GQA 让多个 Q head 共享一组 K/V，所以节省倍数约为 `num_q_heads / num_kv_heads`。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q5</span> <span class="q-text">为什么 prefill 只需要最后一个 token 的 logits？</span></summary>
+
+生成下一个 token 只依赖 prompt 最后位置的 hidden state。prefill 需要为所有 prompt token 建 KV cache，但不需要对每个 prompt 位置都跑完整 vocab LM head。只算最后一个 token 的 logits 可以显著减少大 vocab projection 的计算。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q6</span> <span class="q-text">TP 下 Q/K/V head 切分最容易漏掉什么？</span></summary>
+
+容易只记得 Q head 被切分，忘了 KV head 数更少，必须保证 `num_kv_heads` 和 TP size 的关系可实现。若 KV heads 少于 TP ranks，需要额外 broadcast 或复制逻辑；否则某些 rank 没有本地 K/V，attention kernel 无法直接工作。
+
+</details>

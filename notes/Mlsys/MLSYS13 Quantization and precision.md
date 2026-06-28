@@ -1630,3 +1630,34 @@ Bool mask 支持 block 级跳过——当整个 `[BLOCK_M, BLOCK_N]` 都被 mask
 权重是固定的，可以离线校准和逐层修正；KV cache 是每个请求动态生成的，误差会沿 decode 时间传播，并直接影响 attention score 和上下文读取。长上下文下 KV cache 量化收益很高，但必须控制 scale 粒度、分组方式和 residual window。
 
 </details>
+
+
+### 复习自测：看这组题能不能讲完整篇
+
+<details class="exercise">
+<summary><span class="q-label">Q3</span> <span class="q-text">W4A16、W8A8、FP8 三者的系统差别是什么？</span></summary>
+
+W4A16 主要压权重带宽，计算通常还要反量化到 FP16/BF16，适合小 batch decode；W8A8 权重和激活都量化，更可能用 INT8 Tensor Core，适合吞吐场景；FP8 是训练/推理都常用的低精度格式，需要 scale 管理和数值稳定策略，硬件支持很关键。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q4</span> <span class="q-text">为什么 per-channel/per-block scale 往往比 per-tensor scale 更准？</span></summary>
+
+不同 channel 或 block 的数值范围可能差很多。per-tensor scale 被最大 outlier 决定，会浪费大部分量化 bins；per-channel/per-block scale 能贴近局部分布，减少误差。代价是多存 scale，并在 kernel 中多做 scale load 和反量化。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q5</span> <span class="q-text">KV cache 量化的收益怎么估算？</span></summary>
+
+先写 KV bytes：`layers * tokens * kv_heads * head_dim * 2(K,V) * dtype_bytes`。把 BF16/FP16 的 2 bytes 换成 INT8 的 1 byte，理论上 KV 存储和读带宽约减半；实际还要加 scale、residual window、反量化和 kernel 支持成本。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q6</span> <span class="q-text">为什么 attention 里常量化 Q/K，而对 V 更谨慎？</span></summary>
+
+QK 误差经过 softmax 后有一定平滑和归一化；V 是最后被 attention probability 加权求和的内容本身，误差更直接进入输出 hidden state。很多实现会先量化 Q/K 加速 score 计算，而让 V 保持 FP16/BF16 来保护质量。
+
+</details>

@@ -1110,3 +1110,34 @@ tl.store(out_ptrs, result.to(tl.float16), mask=mask)
 它不把完整 attention matrix 写回 HBM，而是按 block 流式计算 QK、online softmax 和 PV，把中间状态留在 SRAM/register。它减少的是 HBM traffic，而不是改变 attention 的数学结果。对长序列来说，省掉 N by N attention matrix 的读写是核心收益。
 
 </details>
+
+
+### 复习自测：看这组题能不能讲完整篇
+
+<details class="exercise">
+<summary><span class="q-label">Q3</span> <span class="q-text">FlashAttention 为什么需要 online softmax，而不是普通 softmax？</span></summary>
+
+普通 softmax 需要先看到整行 attention score 才能求最大值和归一化分母，会逼着你 materialize 或反复读完整矩阵。online softmax 维护当前最大值 `m`、分母 `l` 和累加输出 `acc`，每来一个 K/V block 就更新状态，因此可以分块流式计算。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q4</span> <span class="q-text">FlashAttention 减少的是计算量还是内存流量？</span></summary>
+
+主要减少 HBM 流量。QK 和 PV 的数学计算仍然存在，但完整 `N x N` attention matrix 不再写回 HBM，也不需要再读出来做 softmax 和 PV。它的核心是 IO-aware，不是把 dense attention 变成 sparse attention。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q5</span> <span class="q-text">GEMM + Bias + GELU 融合的收益来自哪里？</span></summary>
+
+GEMM 结果如果先写回 HBM，再由 bias/GELU kernel 读出来处理，会多一轮大张量读写。融合后 bias 和 GELU 在 accumulator/register 中完成，只写最终结果。收益主要来自减少 memory traffic 和 kernel launch，而不是减少 GEMM FLOPs。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q6</span> <span class="q-text">SwiGLU 融合为什么比普通 GELU 融合更容易带来资源压力？</span></summary>
+
+SwiGLU 同时维护 gate 和 up 两套 accumulator，还要共享输入 tile 做两次 dot。这样能省输入读取，但寄存器、shared memory 和 instruction scheduling 压力更高。如果 tile 选得太大，可能 spill 或 occupancy 降低，抵消 fusion 收益。
+
+</details>

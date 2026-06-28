@@ -968,3 +968,34 @@ Profiling (A6000)
 同一个 warp 内线程 lockstep 执行，可以用 shuffle 在寄存器之间直接交换数据，不必写 shared memory，也不需要 block-level barrier。这减少了 shared memory traffic 和同步开销。前提是参与线程 mask 正确，inactive lane 的值不能污染结果。
 
 </details>
+
+
+### 复习自测：看这组题能不能讲完整篇
+
+<details class="exercise">
+<summary><span class="q-label">Q3</span> <span class="q-text">reduce 为什么天然 arithmetic intensity 很低？</span></summary>
+
+对 FP32 sum 来说，每个元素通常读 4 bytes，只贡献一次加法，AI 大约是 `1 FLOP / 4 bytes = 0.25 FLOP/Byte`。即使 kernel 写得很好，上界也主要由 HBM bandwidth 决定，而不是 FP32 或 Tensor Core peak。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q4</span> <span class="q-text">parallel reduction 的优化主线是什么？</span></summary>
+
+先保证 global load 合并访存；再让每个 thread 在加载阶段多做一点累加，减少后续归约元素数；block 内用 shared memory 或 warp shuffle 做树形归约；最后把跨 block 汇总交给第二个 kernel 或 atomic。每一步都在减少同步、分支和内存流量。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q5</span> <span class="q-text">为什么 reduce 的最后阶段常用 warp-level primitive？</span></summary>
+
+最后 32 个 lane 在同一个 warp 内 lockstep 执行，可以用 `shuffle` 在寄存器之间交换数据。这样不需要 shared memory round-trip，也不需要 `__syncthreads()`。但必须传正确 active mask，尤其是处理非 32 整数倍长度时。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q6</span> <span class="q-text">reduce kernel 优化后仍比 PyTorch/CUB 慢，通常差在哪里？</span></summary>
+
+库实现会针对不同 dtype、长度、对齐、SM 架构选择不同策略，并处理向量化 load、多元素 per thread、warp/block 级归约、跨 block 汇总和 edge cases。手写教学 kernel 通常只覆盖一条路径，性能接近但不一定超过高度调参的库。
+
+</details>

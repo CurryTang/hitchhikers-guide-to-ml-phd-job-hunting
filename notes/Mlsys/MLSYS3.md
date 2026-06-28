@@ -400,3 +400,34 @@ Austin et al., "How to Scale Your Model", Google DeepMind, online, 2025.
 memory-bound kernel 的 achieved TFLOPs 天然低，因为上界由带宽决定。正确做法是同时看 achieved bandwidth、arithmetic intensity、理论 roofline 上界和实际运行时间。reduce 的 TFLOPs 很低可能已经接近带宽上限；GEMM 的 TFLOPs 低才更可能表示 Tensor Core 没吃满。
 
 </details>
+
+
+### 复习自测：看这组题能不能讲完整篇
+
+<details class="exercise">
+<summary><span class="q-label">Q3</span> <span class="q-text">Roofline 里 arithmetic intensity 的分子和分母分别是什么？</span></summary>
+
+分子是实际完成的 FLOPs，分母是从目标内存层级搬运的 Bytes。分析 GPU kernel 时通常先看 HBM bytes，因为很多瓶颈来自显存带宽。AI 越高，说明每读一个 byte 做的计算越多；AI 越低，越容易 memory-bound。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q4</span> <span class="q-text">为什么同一个 kernel 可能在小 shape memory-bound，在大 shape compute-bound？</span></summary>
+
+shape 变大后数据复用可能提高。比如 GEMM 的 K/N/M 变大后，每个加载进来的 tile 会参与更多乘加，arithmetic intensity 上升，瓶颈可能从 HBM 带宽转向 Tensor Core 计算峰值。Roofline 不是给算子贴永久标签，而是分析某个 shape 和实现。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q5</span> <span class="q-text">点落在 roofline 上方通常说明什么？</span></summary>
+
+通常说明测量或账本错了。常见原因是 FLOPs 算多、Bytes 算少、计时没有同步、使用了错误的硬件 peak、没有区分 Tensor Core 和 CUDA Core peak，或者 cache 命中让实际 HBM traffic 小于按理论张量大小估算的 bytes。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q6</span> <span class="q-text">优化 memory-bound 和 compute-bound kernel 的第一反应分别是什么？</span></summary>
+
+memory-bound 先减少 HBM traffic 或提高访问效率：coalescing、fusion、cache reuse、量化、减少中间写回。compute-bound 先提高计算单元利用率：Tensor Core 路径、tile shape、pipeline、减少依赖和 register spill。方向反了会浪费时间。
+
+</details>

@@ -363,3 +363,34 @@ Austin et al., "How to Scale Your Model", Google DeepMind, online, 2025.
 occupancy 高只表示有足够 warps 常驻，不保证发射的是高吞吐指令。Tensor Core 利用率低可能来自没有使用 mma/wgmma 路径、tile shape 不匹配、global/shared memory 供数不足、register spill、同步过多，或者 kernel 主体其实是 softmax/reduction 这类非 GEMM 操作。
 
 </details>
+
+
+### 复习自测：看这组题能不能讲完整篇
+
+<details class="exercise">
+<summary><span class="q-label">Q3</span> <span class="q-text">SM、warp、thread block 三者是什么关系？</span></summary>
+
+thread block 是程序员 launch 的调度单位，一个 block 会被放到某个 SM 上执行；block 内线程按 32 个一组组成 warp；warp 是硬件实际发射指令的基本单位。优化时，block 数决定全局并行度，warp 数决定隐藏延迟的能力，SM 资源决定同时能驻留多少 block/warp。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q4</span> <span class="q-text">为什么 occupancy 高不等于 kernel 快？</span></summary>
+
+occupancy 只表示常驻 warp 多，不表示这些 warp 能发出有用指令。kernel 仍可能被 memory bandwidth、register spill、shared memory bank conflict、同步、指令依赖或没有走 Tensor Core 限制。正确判断要结合 eligible warps、stall reason、memory throughput 和 tensor pipe utilization。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q5</span> <span class="q-text">Tensor Core 在 Transformer 里主要吃哪些算子？CUDA Core 还负责什么？</span></summary>
+
+Tensor Core 主要吃 projection GEMM、MLP GEMM、MoE expert GEMM、attention 里的 QK/PV 等矩阵乘。CUDA Core 仍负责 elementwise、地址计算、mask、normalization、softmax、reduction 和控制逻辑。高性能 kernel 通常是 Tensor Core 做主计算，CUDA Core 做 glue code。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q6</span> <span class="q-text">一个 GEMM 理论上 compute-bound，但 Tensor Core 利用率低，排查顺序是什么？</span></summary>
+
+先查 dtype 和 shape 是否能走 Tensor Core，再看矩阵维度是否对齐、layout 是否连续、tile shape 是否合理、shared memory pipeline 是否供数及时、寄存器是否溢出。最后用 profiler 看是否真的有 `mma`/`wgmma` 指令，而不是退化成普通 CUDA Core 路径。
+
+</details>

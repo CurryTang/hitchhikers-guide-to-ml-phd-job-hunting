@@ -1207,3 +1207,34 @@ seq.block_table=[5,12,3]   blocks[5].ref_count=2        kv_cache[0, layer, 5, :,
 优先查 KV block table 和 block 生命周期：block 是否被过早 free、是否被两个 active sequence 复用、copy-on-write 是否正确、request finish 后是否清理、prefill 到 decode 的 position offset 是否一致。文本串扰通常是 KV cache 映射或 position 管理错误。
 
 </details>
+
+
+### 复习自测：看这组题能不能讲完整篇
+
+<details class="exercise">
+<summary><span class="q-label">Q3</span> <span class="q-text">PagedAttention 的三层对象分别是什么？</span></summary>
+
+逻辑层是 sequence 的 token 位置；管理层是 block table、free list、ref count、prefix hash；物理层是预分配的 KV cache tensor。block table 把逻辑 token range 映射到物理 block，让不同长度请求共享同一块显存池。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q4</span> <span class="q-text">prefix cache 为什么通常等 block 填满后再注册？</span></summary>
+
+填满的 block 内容稳定，hash 才适合作为可复用前缀 key。未填满 block 还会继续追加 token，提前注册会导致 hash 变化、复用粒度混乱或错误命中。延迟注册也让 decode 过程中自然形成可复用前缀。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q5</span> <span class="q-text">CUDA Graph 在 decode 阶段解决什么问题？有什么限制？</span></summary>
+
+decode shape 相对固定，CUDA Graph 可以减少 Python/CPU launch overhead，让多层小 kernel 的调度更稳定。限制是 graph 对 batch size、地址和 shape 更敏感，runtime 常要按 batch size 准备多份 graph；动态 shape 或频繁变化的 metadata 会降低收益。
+
+</details>
+
+<details class="exercise">
+<summary><span class="q-label">Q6</span> <span class="q-text">scheduler 什么时候应该 preempt 一个 request？</span></summary>
+
+当 KV blocks 不够、新请求优先级更高、长请求拖慢整体 tail latency，或需要给 prefill 腾出 token budget 时，可以抢占。抢占策略要决定 recompute 还是 swap/offload。nano-vLLM 简化实现偏 recompute，生产系统会更精细。
+
+</details>
