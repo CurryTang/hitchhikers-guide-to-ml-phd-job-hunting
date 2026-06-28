@@ -2,7 +2,7 @@
 > [!info] Note
 > English version is in progress. Please switch to 中文 for the full exercise set.
 
-# RL Infrastructure Self-Test: 35 Questions
+# Reinforcement Learning Practice
 
 35 questions sourced from [@sheriyuo's RL Interview Questions 2026](https://x.com/sheriyuo/status/2063295181131247674), reorganized by topic:
 

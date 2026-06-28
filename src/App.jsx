@@ -247,7 +247,7 @@ const leetcodeNotes = leetcodeNoteDefinitions.map((definition) => ({
 
 const llmNoteDefinitions = [
   createTutorialDefinition(
-    'LLM八股 · RL Infra 自测 35 问',
+    '强化学习练习',
     'MLSYS15 RL Infra 自测 35 问.md',
     'MLSYS15 RL Infra 自测 35 问.en.md',
   ),

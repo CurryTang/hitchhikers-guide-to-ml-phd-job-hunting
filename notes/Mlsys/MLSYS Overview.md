@@ -233,7 +233,7 @@ LLM八股
 入口：
 
 - [打开 LLM八股板块](#llm)
-- [[MLSYS15 RL Infra 自测 35 问|LLM八股 · RL Infra 自测 35 问]]
+- [[MLSYS15 RL Infra 自测 35 问|强化学习练习]]
 
 这样拆分后：
 
