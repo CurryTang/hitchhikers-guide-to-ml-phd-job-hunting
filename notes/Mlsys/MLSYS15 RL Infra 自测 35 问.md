@@ -1,10 +1,5 @@
 # 强化学习练习
 
-> [!info] 使用说明
-> 本文档对应 [[MLSYS14 Post-Training Infra]] 的配套练习，共 35 题，按主题重排为 A–F 六个部分。点击 **▶ 显示答案** 展开解析，再次点击收起。
-
----
-
 ## A · 算法基础（Q1–Q10）
 
 <details class="exercise">
