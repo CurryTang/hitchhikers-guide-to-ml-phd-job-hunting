@@ -179,6 +179,25 @@ def auth_middleware(request):
 
 优点是撤销登录、刷新权限、强制下线都容易。缺点是每次请求多一次 Redis 依赖。
 
+<details class="solution">
+<summary>技术背景：Session store 到底保存什么？</summary>
+
+Session store 通常保存的是“服务器认可的登录状态”，key 是一个随机 session id，value 是 user id、过期时间、权限版本、登录设备、风险标记等信息。
+
+```text
+session:abc123 -> {
+  user_id: 42,
+  expires_at: 2026-06-28T12:00:00Z,
+  role_version: 17,
+  device_id: "iphone-15",
+  mfa_passed: true
+}
+```
+
+它适合需要强控制的系统：可以随时删除 session 强制用户下线，也可以在权限变化后让旧 session 失效。代价是每次请求要查 Redis / DB，所以 session store 自己要做高可用、TTL、容量和降级策略。
+
+</details>
+
 **方案 B：JWT**
 
 ```text
@@ -191,6 +210,32 @@ Web service:
 ```
 
 JWT 减少 session store 查询，但撤销、权限更新、密钥轮换会更复杂。很多生产系统会混合使用：JWT 做快速认证，Redis / DB 做撤销列表、权限版本或高风险操作二次检查。
+
+<details class="solution">
+<summary>技术背景：JWT 为什么适合 stateless API？</summary>
+
+JWT 可以理解成“服务端签过名的用户声明”。它通常由三部分组成：
+
+```text
+header.payload.signature
+```
+
+payload 里会放：
+
+```json
+{
+  "sub": "user_42",
+  "exp": 1782680000,
+  "aud": "api.example.com",
+  "role": "admin"
+}
+```
+
+API replica 只要有验证公钥或共享密钥，就可以本地验证 signature，不需要每次访问 session store。这让认证路径更无状态，也更适合多 region / 多 replica。
+
+JWT 的缺点也来自这里：token 一旦发出去，在过期之前理论上都有效。要做强制登出、权限即时更新、封禁用户，通常需要额外设计 revoke list、token version、短过期时间 + refresh token，或者让高风险操作回查 DB。
+
+</details>
 
 ### 3.2 文件外置到对象存储
 
@@ -277,6 +322,24 @@ sequenceDiagram
 
 Web service 不需要记得任务。它只负责创建任务、查询任务、取消任务。任务状态在 DB，执行权在 worker，排队状态在 queue。
 
+<details class="solution">
+<summary>技术背景：消息队列在这里解决什么问题？</summary>
+
+消息队列把“接收请求”和“执行耗时任务”解耦。Web API 只需要把任务写入 DB 并投递一个消息，然后立即返回 `job_id`；worker 可以按自己的速度消费任务。
+
+队列主要提供四个能力：
+
+| 能力 | 含义 |
+|---|---|
+| buffer | 流量突增时先排队，不让 Web 进程被长任务占满 |
+| retry | worker 失败后消息可以重新投递 |
+| backpressure | 队列长度反映下游处理不过来，可以限流或扩 worker |
+| isolation | Web API 和 worker 可以独立扩容、独立部署 |
+
+常见队列语义是 at-least-once：消息至少会投递一次，但可能重复投递。因此 worker 必须幂等，不能假设一个 job 只会执行一次。
+
+</details>
+
 ---
 
 ## 四、开发实现：API、DB、Redis、Queue 的职责边界
@@ -322,6 +385,34 @@ def create_job(request):
 ```
 
 这样 client 超时后重试，不会重复创建两个任务。
+
+<details class="solution">
+<summary>技术背景：Idempotency key 怎么避免重复写？</summary>
+
+Idempotency key 是 client 给一次业务操作生成的唯一 key。服务端把 `(user_id, idempotency_key)` 做成唯一约束。相同 key 的重试请求不会重复创建资源，而是返回第一次请求的结果。
+
+典型场景：
+
+```text
+支付扣款
+创建订单
+提交长任务
+上传文件 finalize
+触发模型训练 job
+```
+
+它解决的是“客户端不知道上一次请求到底成功还是失败”的问题。比如 client 超时了，但服务端其实已经创建了 job；如果没有 idempotency key，重试会创建第二个 job。
+
+关键实现点：
+
+```text
+1. client 对同一次业务操作复用同一个 key
+2. DB 上有唯一约束
+3. 服务端保存第一次请求的结果或资源 id
+4. retry 时返回已有结果，而不是重新执行副作用
+```
+
+</details>
 
 ### 4.2 DB 是 authoritative state
 
@@ -473,6 +564,21 @@ livenessProbe:
 | liveness | 我是不是已经坏死 | 重启容器 |
 
 不要把它们写成同一个检查。比如 DB 暂时抖动时，服务可以 not ready，先不接新流量；但不一定要立刻 kill。
+
+<details class="solution">
+<summary>技术背景：Readiness、liveness、startup probe 的区别</summary>
+
+这三个 probe 的语义不同：
+
+| Probe | 问的问题 | 典型动作 |
+|---|---|---|
+| startup | 服务是否完成启动 | 没启动完之前不要做 liveness 判断 |
+| readiness | 现在能不能接新流量 | 失败时从负载均衡池移除 |
+| liveness | 进程是不是已经坏死 | 失败时重启容器 |
+
+常见错误是 liveness 检查依赖 DB。DB 短暂抖动时，如果所有 pod 都 liveness 失败，Kubernetes 会把它们一起重启，反而扩大事故。更合理的设计是：readiness 检查依赖关键下游，liveness 只检查进程是否还能工作。
+
+</details>
 
 ### 5.2 Graceful shutdown
 
