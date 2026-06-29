@@ -99,7 +99,42 @@ Placeholder：data mixture、scaling behavior、objective、curriculum、contami
 
 Placeholder：AdamW、learning rate schedule、weight decay、gradient clipping、stability、large-batch training。
 
-## 11. 数据
+## 11. Data Curation
+
+Data curation 不是简单地“多收集一点数据”。它关心的是：哪些数据应该进训练集、怎么生成缺口数据、怎么过滤低质量样本、怎么让数据分布和目标能力对齐，以及怎么用 eval 反过来驱动下一轮数据构造。
+
+一个实用的 mental model：
+
+~~~text
+target capability
+  -> task / data schema
+  -> raw or synthetic candidates
+  -> filtering / verification / dedup
+  -> train or fine-tune
+  -> eval + failure mining
+  -> update data recipe
+~~~
+
+这里的核心变量通常不是“数据量”，而是：
+
+- Coverage：是否覆盖目标能力的主要 failure modes。
+- Difficulty：样本是否有区分度，太简单会浪费训练预算。
+- Verifiability：答案、轨迹或结果能不能自动检查。
+- Diversity：是否只是模板化重复，还是覆盖不同工具、环境、领域和错误类型。
+- Contamination：训练数据是否泄漏 benchmark 或 eval answer。
+
+代表性工作：
+
+| 工作 | 场景 | Data curation 重点 | 可以学习的点 |
+| --- | --- | --- | --- |
+| [SWE-smith](https://arxiv.org/abs/2504.21798) | 软件工程 agent | 从 Python repo 构建执行环境，自动合成会破坏测试的任务实例；论文报告 128 个 repo、约 50k instances。 | 把真实 repo 变成可训练环境，利用 tests 做自动验证信号。 |
+| [SERA](https://arxiv.org/html/2601.20789v1) | repository coding agent | 使用 soft verification 和 synthetic coding agent trajectories；Ai2 release 提到约 200k synthetic trajectories。 | 不只收最终答案，还收 agent 轨迹，并用较便宜的验证信号控制质量。 |
+| [Nemotron-Terminal](https://arxiv.org/abs/2602.21193) | terminal agent | Terminal-Task-Gen 结合 seed-based / skill-based task construction，构造 Terminal-Corpus，并研究 filtering、curriculum、long-context training。 | 面向 terminal capability 的数据工程：任务生成、过滤、课程学习和长上下文一起设计。 |
+| [Autodata](https://www.alphaxiv.org/abs/2606.25996) | agentic data scientist | 用 agentic data scientist 做 synthetic data creation，把数据生成、诊断和更新 recipe 变成循环。 | 可以复现一个小型 autoresearch loop，看 iterative data improvement 是否超过一次性 synthetic generation。 |
+
+这些工作共同指向一个趋势：强 agent 不是只靠更复杂的推理框架，也依赖更系统的数据构造。高质量数据通常来自“任务生成 + 可验证反馈 + 失败样本挖掘 + 迭代更新”的闭环。
+
+## 12. 数据
 
 Placeholder：data curation、data quality、annotation、labeling、synthetic data、filtering、coverage。
 
@@ -125,11 +160,11 @@ seed tasks / weak dataset
 - agent 的 action space 是什么：改 prompt、改 schema、采样 hard cases、过滤低质量样本、生成 counterexample。
 - loop 是否真的优于一次性 data generation：需要 ablation，比如 no-agent、no-failure-mining、no-iterative-update。
 
-## 12. 多模态
+## 13. 多模态
 
 Placeholder：VLM、speech/audio、video understanding、multimodal alignment、evaluation。
 
-## 13. Personalization
+## 14. Personalization
 
 Placeholder：user modeling、personalized ranking、assistant memory、preference adaptation、privacy boundary。
 `
