@@ -130,6 +130,7 @@ target capability
 | [SWE-smith](https://arxiv.org/abs/2504.21798) | 软件工程 agent | 从 Python repo 构建执行环境，自动合成会破坏测试的任务实例；论文报告 128 个 repo、约 50k instances。 | 把真实 repo 变成可训练环境，利用 tests 做自动验证信号。 |
 | [SERA](https://arxiv.org/html/2601.20789v1) | repository coding agent | 使用 soft verification 和 synthetic coding agent trajectories；Ai2 release 提到约 200k synthetic trajectories。 | 不只收最终答案，还收 agent 轨迹，并用较便宜的验证信号控制质量。 |
 | [Nemotron-Terminal](https://arxiv.org/abs/2602.21193) | terminal agent | Terminal-Task-Gen 结合 seed-based / skill-based task construction，构造 Terminal-Corpus，并研究 filtering、curriculum、long-context training。 | 面向 terminal capability 的数据工程：任务生成、过滤、课程学习和长上下文一起设计。 |
+| [OpenThoughts-Agent](https://arxiv.org/abs/2606.24855) | agentic SFT / RL data recipe | 系统 ablate task source、source mixing、task augmentation、difficulty filtering、teacher trace、multi-turn rollout filtering 和 RL data source。 | agent post-training 先做 data recipe：任务分布、轨迹质量、teacher 风格和 RL 环境会直接决定模型学到的行为。 |
 | [Autodata](https://www.alphaxiv.org/abs/2606.25996) | agentic data scientist | 用 agentic data scientist 做 synthetic data creation，把数据生成、诊断和更新 recipe 变成循环。 | 可以复现一个小型 autoresearch loop，看 iterative data improvement 是否超过一次性 synthetic generation。 |
 
 这些工作共同指向一个趋势：强 agent 不是只靠更复杂的推理框架，也依赖更系统的数据构造。高质量数据通常来自“任务生成 + 可验证反馈 + 失败样本挖掘 + 迭代更新”的闭环。
@@ -140,9 +141,12 @@ Placeholder：data curation、data quality、annotation、labeling、synthetic d
 
 候选论文：
 
+- [OpenThoughts-Agent: Data Recipes for Agentic Models](https://arxiv.org/abs/2606.24855)
 - [Autodata: An agentic data scientist to create high quality synthetic data](https://www.alphaxiv.org/abs/2606.25996)
 
-这篇可以作为 “autoresearch loop 提升数据质量” 的入口。核心问题不是单次生成 synthetic data，而是让 agent 反复做：提出数据假设、生成或改写数据、训练/评测、诊断失败 case、更新数据策略。后续可以复现一个小版本：
+OpenThoughts-Agent 可以作为 “agentic SFT / RL data recipe” 的入口：先把 task source、source mixing、difficulty filtering、teacher trace、multi-turn rollout filter 和 RL data source 做成可 ablate 的变量，再讨论算法。
+
+Autodata 可以作为 “autoresearch loop 提升数据质量” 的入口。核心问题不是单次生成 synthetic data，而是让 agent 反复做：提出数据假设、生成或改写数据、训练/评测、诊断失败 case、更新数据策略。后续可以复现一个小版本：
 
 ~~~text
 seed tasks / weak dataset
