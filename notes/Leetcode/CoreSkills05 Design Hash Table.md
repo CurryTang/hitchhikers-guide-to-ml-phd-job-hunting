@@ -23,6 +23,49 @@
 - 删除 key 时忘记维护 size。
 - 用对象引用做 key 时没有稳定哈希策略。
 
+## 参考解法
+
+<details class="solution">
+<summary>展开解法</summary>
+
+链地址法最直接：桶数组中每个位置保存一个小列表，列表里是 `(key, value)`。
+
+```text
+put(key, value):
+  bucket = buckets[hash(key) % capacity]
+  for pair in bucket:
+    if pair.key == key:
+      pair.value = value
+      return
+  bucket.append((key, value))
+  size += 1
+  if size / capacity > 0.75: resize()
+```
+
+扩容时不能原样复制桶，要重新对每个 key 计算新桶下标。
+
+</details>
+
+```quiz
+title: 练习 1
+question: 哈希表扩容后为什么需要 rehash？
+answer: B
+A. 为了让值变大
+B. capacity 改变后 key 对应的桶下标可能改变
+C. 为了把所有 key 排序
+explanation: 桶下标依赖 `hash(key) % capacity`，容量变化会改变映射。
+```
+
+```quiz
+title: 练习 2
+question: 链地址法如何处理哈希冲突？
+answer: A
+A. 同一个桶里保存多个 key-value
+B. 直接丢弃新 key
+C. 把数组改成二叉堆
+explanation: 链地址法让冲突元素共存于同一个桶。
+```
+
 ## NeetCode 例题：Group Anagrams
 
 这道题的目标是把所有字母异位词放到同一组。两个字符串是否属于同一组，不取决于字符顺序，只取决于每个字母出现了多少次。
@@ -99,49 +142,6 @@ class Solution:
 - 空间复杂度：`O(n * k)`，输出本身需要保存所有字符串；哈希表 key 额外是每组一个 26 维 tuple。
 
 </details>
-
-## 参考解法
-
-<details class="solution">
-<summary>展开解法</summary>
-
-链地址法最直接：桶数组中每个位置保存一个小列表，列表里是 `(key, value)`。
-
-```text
-put(key, value):
-  bucket = buckets[hash(key) % capacity]
-  for pair in bucket:
-    if pair.key == key:
-      pair.value = value
-      return
-  bucket.append((key, value))
-  size += 1
-  if size / capacity > 0.75: resize()
-```
-
-扩容时不能原样复制桶，要重新对每个 key 计算新桶下标。
-
-</details>
-
-```quiz
-title: 练习 1
-question: 哈希表扩容后为什么需要 rehash？
-answer: B
-A. 为了让值变大
-B. capacity 改变后 key 对应的桶下标可能改变
-C. 为了把所有 key 排序
-explanation: 桶下标依赖 `hash(key) % capacity`，容量变化会改变映射。
-```
-
-```quiz
-title: 练习 2
-question: 链地址法如何处理哈希冲突？
-answer: A
-A. 同一个桶里保存多个 key-value
-B. 直接丢弃新 key
-C. 把数组改成二叉堆
-explanation: 链地址法让冲突元素共存于同一个桶。
-```
 
 ```quiz
 title: 练习 3
