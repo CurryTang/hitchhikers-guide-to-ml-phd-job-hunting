@@ -453,6 +453,12 @@ const quantNoteDefinitions = [
     null,
     { directory: 'quant', category: 'Probability', difficulty: 'Medium' },
   ),
+  createTutorialDefinition(
+    'Quant 2 · Dice Rolls Product Expectation',
+    'Quant02 Dice Rolls Product Expectation.md',
+    null,
+    { directory: 'quant', category: 'Probability', difficulty: 'Medium' },
+  ),
 ];
 
 const quantNotes = quantNoteDefinitions.map((definition) => ({
