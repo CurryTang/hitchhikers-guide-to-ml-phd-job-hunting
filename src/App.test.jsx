@@ -173,6 +173,7 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: /先按题型选工具/ })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /System Design 草稿 · 数据库扩展三件套/i }));
-    expect(await screen.findByRole('heading', { name: /先判断压力来自哪里/ })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /基础概念：QPS、IOPS、吞吐和延迟/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /先判断压力来自哪里/ })).toBeInTheDocument();
   });
 });

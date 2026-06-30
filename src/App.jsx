@@ -636,9 +636,270 @@ $$
 const systemDesignDbScalingDraftContent = isDraftMode
   ? `# System Design 草稿 · 数据库扩展三件套
 
-> Draft：这篇先作为 System Design pattern 记录。主线是主从复制、主主复制和数据分区，以及它们在 Feature Store / Embedding Store / Online KV Store 里的类比。
+> Draft：这篇先作为 System Design pattern 记录。主线是基础容量估算、主从复制、主主复制和数据分区，以及它们在 Feature Store / Embedding Store / Online KV Store 里的类比。
 
-## 0. 先判断压力来自哪里
+## 0. 基础概念：QPS、IOPS、吞吐和延迟
+
+做数据库扩展题之前，先把几个指标说清楚。很多面试回答的问题不是“方案错了”，而是没有先估算系统到底卡在 CPU、网络、磁盘、数据库连接数，还是单机容量。
+
+### 0.1 QPS / RPS / TPS
+
+QPS 是 queries per second，通常表示每秒查询数。RPS 是 requests per second，通常表示服务每秒请求数。TPS 是 transactions per second，常用于数据库事务或支付交易。
+
+它们经常接近，但不完全一样：
+
+| 指标 | 常见含义 | 例子 |
+| --- | --- | --- |
+| RPS | 服务入口请求数 | API Gateway 每秒收到 10k 个 HTTP request |
+| QPS | 查询请求数 | Search service 每秒处理 20k 次 query |
+| TPS | 成功事务数 | Payment service 每秒完成 500 笔交易 |
+| DB QPS | 数据库查询次数 | 一个 API 请求打 5 次 DB，则 DB QPS 可能是 API RPS 的 5 倍 |
+
+一个常见坑：
+
+~~~text
+用户 QPS != 数据库 QPS
+
+1 个 API request
+  -> 读 user profile
+  -> 读 feature flags
+  -> 查订单列表
+  -> 写 audit log
+
+入口 RPS = 1
+DB operations = 4
+DB QPS 约等于 4
+~~~
+
+### 0.2 Throughput、Latency 和 Concurrency
+
+Throughput 是单位时间完成多少工作；latency 是单个请求花多久；concurrency 是同一时刻有多少请求在系统内。
+
+三者可以用 Little's Law 做粗估：
+
+$$
+\text{concurrency} \approx \text{QPS} \times \text{latency}
+$$
+
+注意 latency 要换成秒。
+
+例子：
+
+~~~text
+QPS = 10,000 requests/s
+平均 latency = 100 ms = 0.1 s
+
+系统内平均并发请求数约为:
+10,000 * 0.1 = 1,000
+~~~
+
+这说明即使每秒 1 万请求，如果每个请求在系统里停留 100ms，系统同时要承载大约 1000 个 in-flight requests。
+
+记忆图：
+
+~~~mermaid
+flowchart LR
+  A[QPS: 每秒进来多少] --> D[Concurrency: 同时在系统里多少]
+  B[Latency: 每个请求待多久] --> D
+  D --> C[线程 / 连接 / 队列 / 内存压力]
+~~~
+
+### 0.3 平均 QPS 和峰值 QPS
+
+日活、月活、请求总量通常只能给平均 QPS。系统设计时要估峰值。
+
+一天有：
+
+$$
+24\times 60\times 60 = 86400 \approx 10^5
+$$
+
+所以：
+
+$$
+\text{avg QPS} \approx \frac{\text{daily requests}}{10^5}
+$$
+
+峰值通常可以粗略乘一个系数：
+
+~~~text
+peak QPS = avg QPS * peak factor
+
+普通业务: peak factor 3~5
+明显潮汐业务: peak factor 5~10
+秒杀/热点事件: 可能 10~100+
+~~~
+
+例子：
+
+~~~text
+每天 1 亿次请求
+avg QPS ≈ 100,000,000 / 100,000 = 1,000
+
+如果 peak factor = 5
+peak QPS ≈ 5,000
+~~~
+
+面试里更重要的是说明假设，而不是死背某个倍数。
+
+### 0.4 IOPS 和磁盘带宽
+
+IOPS 是 input/output operations per second，表示存储系统每秒能处理多少次 I/O 操作。它主要用于估算随机读写压力。
+
+Bandwidth / throughput 表示每秒能传多少数据，常用于大块顺序读写。
+
+| 指标 | 关注点 | 典型瓶颈 |
+| --- | --- | --- |
+| IOPS | 每秒多少次读写操作 | 小块随机读写、索引 lookup、KV get |
+| Bandwidth | 每秒多少 MB/GB | 扫描大文件、备份、日志传输 |
+| Latency | 单次 I/O 等多久 | tail latency、同步写路径 |
+
+一个粗略估算：
+
+$$
+\text{required IOPS}
+\approx
+\text{QPS} \times \text{I/O ops per request}
+$$
+
+如果每个请求需要 3 次随机读、1 次随机写：
+
+~~~text
+API peak QPS = 5,000
+I/O per request = 4
+
+required IOPS ≈ 20,000
+~~~
+
+如果每个请求还要读取 20KB 数据，那么网络或磁盘带宽约为：
+
+$$
+\text{bandwidth} \approx \text{QPS} \times \text{bytes per request}
+$$
+
+~~~text
+5,000 QPS * 20 KB ≈ 100 MB/s
+~~~
+
+这两个估算回答的是不同问题：
+
+~~~text
+小对象随机读很多:
+  看 IOPS
+
+大对象连续读很多:
+  看 bandwidth
+~~~
+
+### 0.5 常见容量估算模板
+
+#### 存储容量
+
+~~~text
+daily data = daily writes * average record size
+retention storage = daily data * retention days * replication factor
+~~~
+
+例子：
+
+~~~text
+每天 1 亿条 event
+每条 500 bytes
+保留 30 天
+3 副本
+
+raw daily data = 100,000,000 * 500B = 50GB/day
+total storage ≈ 50GB * 30 * 3 = 4.5TB
+~~~
+
+#### 数据库读写拆分
+
+~~~text
+read QPS = total QPS * read ratio
+write QPS = total QPS * write ratio
+replica count ≈ read QPS / safe read QPS per replica
+~~~
+
+例子：
+
+~~~text
+peak QPS = 20,000
+读写比 = 90% read, 10% write
+
+read QPS = 18,000
+write QPS = 2,000
+
+如果单个 replica 安全承载 4,000 read QPS
+至少需要 5 个 read replicas
+~~~
+
+#### Cache 命中后端压力
+
+~~~text
+backend QPS = total QPS * (1 - cache hit rate)
+~~~
+
+例子：
+
+~~~text
+total QPS = 100,000
+cache hit rate = 95%
+
+backend QPS = 100,000 * 5% = 5,000
+~~~
+
+这就是为什么高 QPS 系统里，cache hit rate 从 95% 掉到 90% 会很严重：后端压力直接翻倍。
+
+#### 队列和 worker 数
+
+如果任务平均处理时间是 $T$ 秒，每个 worker 一次处理一个任务，那么单 worker 吞吐约为：
+
+$$
+\text{worker throughput} \approx \frac{1}{T}
+$$
+
+所需 worker 数：
+
+$$
+\text{workers} \approx \text{arrival QPS} \times T
+$$
+
+例子：
+
+~~~text
+每秒进入 200 个任务
+每个任务平均处理 0.5 秒
+
+需要并发 worker ≈ 200 * 0.5 = 100
+~~~
+
+### 0.6 面试里怎么用这些数字
+
+系统设计里，估算不是为了精确，而是为了决定架构方向。
+
+~~~mermaid
+flowchart TD
+  A[估 QPS / storage / bandwidth / IOPS] --> B{单机能否承受}
+  B -->|读压力大| C[replica / cache / read pool]
+  B -->|写压力大| D[partition / queue / batch]
+  B -->|容量大| E[sharding / cold storage / retention]
+  B -->|延迟高| F[index / cache / async / locality]
+  B -->|峰值高| G[autoscale / rate limit / backpressure]
+~~~
+
+一个比较稳的回答顺序：
+
+~~~text
+1. 先估入口 QPS 和峰值 QPS。
+2. 再估每个请求会打多少 DB / cache / storage。
+3. 把入口 QPS 转成后端 QPS、IOPS 和 bandwidth。
+4. 判断读瓶颈、写瓶颈、容量瓶颈还是延迟瓶颈。
+5. 再选择复制、分片、缓存、队列或异步化。
+~~~
+
+---
+
+## 0.7 先判断压力来自哪里
 
 数据库扩展题不要一上来就说“加缓存”或“上分片”。先判断系统瓶颈：
 
