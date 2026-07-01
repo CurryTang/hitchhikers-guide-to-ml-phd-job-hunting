@@ -173,8 +173,15 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'System Design' }));
 
     expect(await screen.findByRole('heading', { name: /System Design 0/i })).toBeInTheDocument();
-    expect(screen.getByText('2 notes in this section')).toBeInTheDocument();
+    expect(screen.getByText('3 notes in this section')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /System Design 1 · 无状态设计范式/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /System Design 2 · 数据库扩展三件套/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /System Design 2 · 数据库扩展三件套/i }));
+
+    expect(await screen.findByRole('heading', { name: /Feature Store 分片的代价/ })).toBeInTheDocument();
+    expect(screen.getByText(/Push \/ active update/)).toBeInTheDocument();
+    expect(screen.getByText('Database Scaling Check 1')).toBeInTheDocument();
   });
 
   it('shows local-only draft notes in development mode', async () => {
@@ -183,10 +190,9 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: '草稿区' }));
 
     expect(await screen.findByRole('heading', { name: '草稿区' })).toBeInTheDocument();
-    expect(screen.getByText('3 notes in this section')).toBeInTheDocument();
+    expect(screen.getByText('2 notes in this section')).toBeInTheDocument();
     expect(screen.getAllByText(/LLM八股 Overview · JD 高频主题拆解/).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /Quant 草稿 · 概率基础公式与记忆框架/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /System Design 草稿 · 数据库扩展三件套/i })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: /Motivation/ })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /7\. RLVR & Agentic RL/ })).toBeInTheDocument();
 
@@ -198,8 +204,6 @@ describe('App', () => {
       ),
     ).toBe(true);
 
-    fireEvent.click(screen.getByRole('button', { name: /System Design 草稿 · 数据库扩展三件套/i }));
-    expect(await screen.findByRole('heading', { name: /基础概念：QPS、IOPS、吞吐和延迟/ })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /先判断压力来自哪里/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /System Design 草稿 · 数据库扩展三件套/i })).not.toBeInTheDocument();
   });
 });
