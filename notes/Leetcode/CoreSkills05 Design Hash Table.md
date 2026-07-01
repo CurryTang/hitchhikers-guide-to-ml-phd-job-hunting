@@ -292,6 +292,60 @@ class Solution:
 
 </details>
 
+## 常见错误：只读取一位长度
+
+一个很容易写错的版本是：
+
+```python
+def decode(self, s: str) -> List[str]:
+    i = 0
+    res = []
+    while i < len(s):
+        length = int(s[i])
+        c_str = s[i + 2:i + length + 2]
+        res.append(c_str)
+        i = i + length + 2
+    return res
+```
+
+这个代码默认长度字段只有一位数，所以只能处理长度 `0..9` 的字符串。一旦字符串长度是两位数，就会错。
+
+例如：
+
+```text
+原始列表:
+["abcdefghij"]
+
+正确编码:
+"10#abcdefghij"
+```
+
+错误代码会这样读：
+
+```text
+i = 0
+length = int(s[0]) = 1
+c_str = s[2:3] = "#"
+```
+
+它把长度 `10` 只读成了 `1`，而且还把 `#` 当成 payload 的一部分读出来。后面的指针也会全部错位。
+
+所以 decode 时必须先找到 `#`：
+
+```text
+i 指向 length 的开始
+j 从 i 往右走，直到 s[j] == "#"
+length = int(s[i:j])
+payload 从 j + 1 开始，读 length 个字符
+```
+
+核心区别：
+
+| 写法 | 问题 |
+| --- | --- |
+| `length = int(s[i])` | 只支持一位长度 |
+| `while s[j] != "#": j += 1` | 支持任意位数长度 |
+
 ```quiz
 title: 练习 4
 question: Encode and Decode Strings 为什么不能直接用逗号连接所有字符串？
@@ -310,4 +364,14 @@ A. 它让字符串排序更快
 B. 它要求原字符串不能包含 `#`
 C. 它让解码器先知道 payload 长度，因此 payload 中可以包含任意字符
 explanation: `#` 只分隔长度字段和 payload。payload 读多少字符由 length 决定，所以 payload 里出现 `#`、逗号或换行都不会破坏解码。
+```
+
+```quiz
+title: 练习 6
+question: 在 `10#abcdefghij` 里，如果 decode 写成 `length = int(s[i])`，主要问题是什么？
+answer: A
+A. 它只会把长度读成 1，不能处理多位数长度
+B. 它会自动跳过 `#`
+C. 它会把字符串长度读成 10，但时间复杂度变高
+explanation: 长度字段可能是 `10`、`123` 这种多位数字。decode 必须一直读到 `#`，再用 `int(s[i:j])` 得到完整长度。
 ```
