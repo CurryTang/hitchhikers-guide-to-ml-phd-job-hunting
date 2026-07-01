@@ -1838,7 +1838,7 @@ const quantNoteDefinitions = [
     { directory: 'quant', category: 'Probability', difficulty: 'Medium' },
   ),
   createTutorialDefinition(
-    'Quant 3 · Continuous Distribution CDF Transform',
+    'Quant 3 · 连续随机变量分布：从 CDF 写起',
     'Quant03 Continuous Distribution CDF Transform.md',
     null,
     { directory: 'quant', category: 'Probability', difficulty: 'Medium' },
