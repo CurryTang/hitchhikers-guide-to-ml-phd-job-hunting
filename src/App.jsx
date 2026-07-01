@@ -1837,6 +1837,12 @@ const quantNoteDefinitions = [
     null,
     { directory: 'quant', category: 'Probability', difficulty: 'Medium' },
   ),
+  createTutorialDefinition(
+    'Quant 3 · Continuous Distribution CDF Transform',
+    'Quant03 Continuous Distribution CDF Transform.md',
+    null,
+    { directory: 'quant', category: 'Probability', difficulty: 'Medium' },
+  ),
 ];
 
 const quantNotes = quantNoteDefinitions.map((definition) => ({
