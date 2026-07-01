@@ -1763,6 +1763,12 @@ const leetcodeNoteDefinitions = [
     null,
     { directory: 'Leetcode', category: 'Math', difficulty: 'Easy' },
   ),
+  createTutorialDefinition(
+    'Core Skills 27 · String Basics',
+    'CoreSkills27 String Basics Encode Decode.md',
+    null,
+    { directory: 'Leetcode', category: 'Strings', difficulty: 'Medium' },
+  ),
 ];
 
 const leetcodeNotes = leetcodeNoteDefinitions.map((definition) => ({
