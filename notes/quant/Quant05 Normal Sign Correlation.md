@@ -337,42 +337,57 @@ $$
 $$
 
 <figure class="quant-svg-figure quant-svg-wide">
-<svg viewBox="0 0 980 560" role="img" aria-label="Sector geometry for the probability P of X greater than zero and Y greater than zero">
+<svg viewBox="0 0 1060 520" role="img" aria-label="Sector geometry for the probability P of X greater than zero and Y greater than zero">
   <defs>
     <marker id="arrow-normal-2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#24485a" />
     </marker>
-    <radialGradient id="sector-fill" cx="50%" cy="50%" r="70%">
-      <stop offset="0%" stop-color="#ffcf7a" stop-opacity="0.9" />
-      <stop offset="100%" stop-color="#f2a65a" stop-opacity="0.45" />
-    </radialGradient>
+    <filter id="normal-card-shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#18313f" flood-opacity="0.10" />
+    </filter>
+    <linearGradient id="sector-fill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f7c66f" stop-opacity="0.86" />
+      <stop offset="100%" stop-color="#df8f38" stop-opacity="0.46" />
+    </linearGradient>
   </defs>
-  <rect x="18" y="18" width="944" height="524" rx="18" fill="#fbfcfa" stroke="#d0dce0" />
-  <text x="58" y="58" class="quant-svg-title">sector in the independent (U,V) plane</text>
-  <text x="58" y="88" class="quant-svg-note">drawn with rho = 0.5, so alpha = arcsin(rho) = 30 degrees</text>
-  <g transform="translate(490 302)">
-    <circle cx="0" cy="0" r="205" fill="#f8fbfa" stroke="#d7e3e6" stroke-width="2" />
-    <circle cx="0" cy="0" r="142" fill="none" stroke="#e8eff1" stroke-width="2" />
-    <circle cx="0" cy="0" r="72" fill="none" stroke="#eef3f4" stroke-width="2" />
-    <path d="M0 0 L178.0 102.5 A205 205 0 0 0 0 -205 Z" fill="url(#sector-fill)" stroke="#d88532" stroke-width="3" />
-    <line x1="-235" y1="0" x2="240" y2="0" stroke="#52707d" stroke-width="2" marker-end="url(#arrow-normal-2)" />
-    <line x1="0" y1="220" x2="0" y2="-235" stroke="#52707d" stroke-width="2" marker-end="url(#arrow-normal-2)" />
-    <line x1="-210" y1="-121.2" x2="210" y2="121.2" stroke="#24485a" stroke-width="3" stroke-dasharray="9 7" />
-    <line x1="0" y1="215" x2="0" y2="-215" stroke="#24485a" stroke-width="3" />
-    <path d="M86.6 50 A100 100 0 0 0 0 -100" fill="none" stroke="#9b4c18" stroke-width="5" />
-    <text x="58" y="-78" class="quant-svg-label">angle = pi/2 + alpha</text>
-    <text x="102" y="37" class="quant-svg-label">-alpha</text>
-    <text x="247" y="6" class="quant-svg-label">U</text>
-    <text x="8" y="-242" class="quant-svg-label">V</text>
-    <text x="18" y="-192" class="quant-svg-label">U = 0</text>
-    <text x="-220" y="-142" class="quant-svg-label">Y = 0</text>
-    <text x="94" y="-132" class="quant-svg-note">U > 0</text>
-    <text x="116" y="-108" class="quant-svg-note">and Y > 0</text>
+  <rect x="18" y="18" width="1024" height="484" rx="18" fill="#fbfcfa" stroke="#d0dce0" />
+  <text x="52" y="58" class="quant-svg-title">sector in the independent (U,V) plane</text>
+  <text x="52" y="88" class="quant-svg-note">example: rho = 0.5, alpha = arcsin(rho) = 30 degrees</text>
+  <g transform="translate(330 286)">
+    <circle cx="0" cy="0" r="182" fill="#f8fbfa" stroke="#d7e3e6" stroke-width="2" />
+    <circle cx="0" cy="0" r="122" fill="none" stroke="#e8eff1" stroke-width="2" />
+    <circle cx="0" cy="0" r="64" fill="none" stroke="#eef3f4" stroke-width="2" />
+    <path d="M0 0 L157.6 91 A182 182 0 0 0 0 -182 Z" fill="url(#sector-fill)" stroke="#d1812c" stroke-width="3" />
+    <line x1="-214" y1="0" x2="222" y2="0" stroke="#52707d" stroke-width="2" marker-end="url(#arrow-normal-2)" />
+    <line x1="0" y1="206" x2="0" y2="-218" stroke="#52707d" stroke-width="2" marker-end="url(#arrow-normal-2)" />
+    <line x1="-188" y1="-108.5" x2="188" y2="108.5" stroke="#24485a" stroke-width="3" stroke-dasharray="10 8" />
+    <line x1="0" y1="190" x2="0" y2="-190" stroke="#24485a" stroke-width="3" />
+    <path d="M77.9 45 A90 90 0 0 0 0 -90" fill="none" stroke="#9b4c18" stroke-width="5" stroke-linecap="round" />
+    <path d="M64 0 A64 64 0 0 1 55.4 32" fill="none" stroke="#9b4c18" stroke-width="3" />
+    <rect x="45" y="-141" width="112" height="32" rx="8" fill="#fff8e8" stroke="#edc77f" />
+    <text x="60" y="-120" class="quant-svg-note">U&gt;0, Y&gt;0</text>
+    <rect x="15" y="-214" width="74" height="28" rx="7" fill="#ffffff" stroke="#d0dce0" />
+    <text x="27" y="-195" class="quant-svg-label">U = 0</text>
+    <rect x="-190" y="-143" width="74" height="28" rx="7" fill="#ffffff" stroke="#d0dce0" />
+    <text x="-178" y="-124" class="quant-svg-label">Y = 0</text>
+    <text x="230" y="6" class="quant-svg-label">U</text>
+    <text x="8" y="-225" class="quant-svg-label">V</text>
+    <text x="45" y="-70" class="quant-svg-formula">pi/2 + alpha</text>
+    <text x="76" y="52" class="quant-svg-formula">-alpha</text>
   </g>
-  <g transform="translate(705 420)">
-    <rect x="0" y="0" width="210" height="82" rx="12" fill="#eef7f5" stroke="#cddde0" />
-    <text x="18" y="30" class="quant-svg-formula">p = sector angle / 2pi</text>
-    <text x="18" y="58" class="quant-svg-formula">p = 1/4 + arcsin(rho)/(2pi)</text>
+  <g transform="translate(628 130)" filter="url(#normal-card-shadow)">
+    <rect x="0" y="0" width="355" height="290" rx="16" fill="#ffffff" stroke="#d4e0e3" />
+    <text x="24" y="42" class="quant-svg-label">What the picture is doing</text>
+    <circle cx="33" cy="82" r="5" fill="#24485a" />
+    <text x="52" y="87" class="quant-svg-note">U = 0 keeps the right half-plane.</text>
+    <circle cx="33" cy="120" r="5" fill="#24485a" />
+    <text x="52" y="125" class="quant-svg-note">Y = 0 is the slanted dashed line.</text>
+    <circle cx="33" cy="158" r="5" fill="#d1812c" />
+    <text x="52" y="163" class="quant-svg-note">The overlap is the shaded sector.</text>
+    <line x1="24" y1="188" x2="331" y2="188" stroke="#e5edef" />
+    <text x="24" y="222" class="quant-svg-formula">sector angle = pi/2 + alpha</text>
+    <text x="24" y="252" class="quant-svg-formula">p = (pi/2 + alpha) / (2pi)</text>
+    <text x="24" y="282" class="quant-svg-formula">alpha = arcsin(rho)</text>
   </g>
 </svg>
 <figcaption>在 $(U,V)$ 平面里，联合密度是圆对称的。$U>0$ 和 $Y>0$ 的交集是一个扇形，概率等于扇形角度除以 $2\pi$。</figcaption>
