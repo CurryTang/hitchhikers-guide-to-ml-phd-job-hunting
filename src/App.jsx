@@ -1849,6 +1849,12 @@ const quantNoteDefinitions = [
     null,
     { directory: 'quant', category: 'Probability', difficulty: 'Medium' },
   ),
+  createTutorialDefinition(
+    'Quant 5 · 正态分布：二维正态、Cholesky 与符号相关',
+    'Quant05 Normal Sign Correlation.md',
+    null,
+    { directory: 'quant', category: 'Normal Distribution', difficulty: 'Medium' },
+  ),
 ];
 
 const quantNotes = quantNoteDefinitions.map((definition) => ({

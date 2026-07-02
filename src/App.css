@@ -1047,6 +1047,56 @@
   object-fit: contain;
 }
 
+.markdown-body .quant-svg-figure {
+  margin: 1.45rem 0;
+  border: 1px solid rgba(24, 49, 63, 0.14);
+  border-radius: 8px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.9), rgba(239, 247, 245, 0.78));
+  box-shadow: 0 14px 30px rgba(31, 53, 66, 0.1);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.markdown-body .quant-svg-figure svg {
+  display: block;
+  width: 100%;
+  min-width: 720px;
+  height: auto;
+}
+
+.markdown-body .quant-svg-figure.quant-svg-wide svg {
+  min-width: 860px;
+}
+
+.markdown-body .quant-svg-figure figcaption {
+  border-top: 1px solid rgba(24, 49, 63, 0.1);
+  color: #405a68;
+  font-size: 0.94rem;
+  line-height: 1.65;
+  margin: 0;
+  padding: 0.82rem 1rem 0.95rem;
+}
+
+.markdown-body .quant-svg-title {
+  fill: #18313f;
+  font: 700 20px "Space Grotesk", "Avenir Next", sans-serif;
+}
+
+.markdown-body .quant-svg-label {
+  fill: #18313f;
+  font: 700 16px "IBM Plex Mono", "Courier New", monospace;
+}
+
+.markdown-body .quant-svg-note {
+  fill: #58707b;
+  font: 600 14px "IBM Plex Mono", "Courier New", monospace;
+}
+
+.markdown-body .quant-svg-formula {
+  fill: #24485a;
+  font: 700 14px "IBM Plex Mono", "Courier New", monospace;
+}
+
 .markdown-body mark {
   background: #ffef94;
   border-radius: 4px;
