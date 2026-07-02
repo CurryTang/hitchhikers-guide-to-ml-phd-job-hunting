@@ -92,8 +92,8 @@ $$
 
 于是 $(X,Y)$ 就是相关系数为 $\rho$ 的二维标准正态。
 
-<figure class="quant-svg-figure">
-<svg viewBox="0 0 920 360" role="img" aria-label="Cholesky transform from independent normal variables to correlated normal variables">
+<figure class="quant-svg-figure quant-svg-wide">
+<svg viewBox="0 0 1060 420" role="img" aria-label="Cholesky transform from independent normal variables to correlated normal variables">
   <defs>
     <marker id="arrow-normal-1" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#24485a" />
@@ -102,37 +102,46 @@ $$
       <stop offset="0%" stop-color="#dff1ed" />
       <stop offset="100%" stop-color="#f8ead2" />
     </linearGradient>
+    <filter id="normal-small-shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="7" stdDeviation="6" flood-color="#18313f" flood-opacity="0.09" />
+    </filter>
   </defs>
-  <rect x="18" y="18" width="884" height="324" rx="16" fill="#fbfcfa" stroke="#d0dce0" />
-  <text x="78" y="55" class="quant-svg-title">independent plane</text>
-  <text x="610" y="55" class="quant-svg-title">correlated plane</text>
-  <g transform="translate(205 190)">
-    <line x1="-120" y1="0" x2="125" y2="0" stroke="#5f7b88" stroke-width="2" marker-end="url(#arrow-normal-1)" />
-    <line x1="0" y1="120" x2="0" y2="-125" stroke="#5f7b88" stroke-width="2" marker-end="url(#arrow-normal-1)" />
-    <circle cx="0" cy="0" r="92" fill="#e9f4f1" stroke="#2c6b7f" stroke-width="3" />
-    <path d="M-70 70 C-28 25 30 -35 72 -72" fill="none" stroke="#e08d3c" stroke-width="4" />
-    <text x="132" y="6" class="quant-svg-label">U</text>
-    <text x="8" y="-132" class="quant-svg-label">V</text>
-    <text x="-78" y="116" class="quant-svg-note">density depends only on radius</text>
+  <rect x="18" y="18" width="1024" height="384" rx="18" fill="#fbfcfa" stroke="#d0dce0" />
+  <text x="70" y="62" class="quant-svg-title">independent standard normal</text>
+  <text x="680" y="62" class="quant-svg-title">correlated normal</text>
+  <g transform="translate(248 220)">
+    <line x1="-142" y1="0" x2="152" y2="0" stroke="#5f7b88" stroke-width="2.4" marker-end="url(#arrow-normal-1)" />
+    <line x1="0" y1="140" x2="0" y2="-150" stroke="#5f7b88" stroke-width="2.4" marker-end="url(#arrow-normal-1)" />
+    <circle cx="0" cy="0" r="108" fill="#e9f4f1" stroke="#2c6b7f" stroke-width="3.5" />
+    <circle cx="0" cy="0" r="64" fill="none" stroke="#cfe1e1" stroke-width="2" />
+    <line x1="-82" y1="82" x2="82" y2="-82" stroke="#e08d3c" stroke-width="5" stroke-linecap="round" />
+    <text x="158" y="8" class="quant-svg-label">U</text>
+    <text x="10" y="-152" class="quant-svg-label">V</text>
+    <rect x="-122" y="122" width="244" height="38" rx="10" fill="#ffffff" stroke="#d6e2e5" />
+    <text x="-103" y="146" class="quant-svg-note">level sets are circles</text>
   </g>
-  <g transform="translate(460 180)">
-    <line x1="-58" y1="0" x2="58" y2="0" stroke="#24485a" stroke-width="3" marker-end="url(#arrow-normal-1)" />
-    <text x="-64" y="-16" class="quant-svg-label">Cholesky</text>
-    <text x="-98" y="38" class="quant-svg-formula">[X,Y]^T = L[U,V]^T</text>
+  <g transform="translate(530 214)" filter="url(#normal-small-shadow)">
+    <rect x="-112" y="-58" width="224" height="116" rx="14" fill="#ffffff" stroke="#d4e0e3" />
+    <line x1="-82" y1="-4" x2="82" y2="-4" stroke="#24485a" stroke-width="3.5" marker-end="url(#arrow-normal-1)" />
+    <text x="-70" y="-26" class="quant-svg-label">Cholesky map</text>
+    <text x="-82" y="35" class="quant-svg-formula">X = U</text>
+    <text x="-82" y="58" class="quant-svg-formula">Y = rho U + sqrt(1-rho^2) V</text>
   </g>
-  <g transform="translate(710 190) rotate(-30)">
-    <ellipse cx="0" cy="0" rx="126" ry="64" fill="url(#normal-ellipse)" stroke="#2c6b7f" stroke-width="3" />
-    <path d="M-95 0 C-45 -16 42 18 96 0" fill="none" stroke="#e08d3c" stroke-width="4" />
-  </g>
-  <g transform="translate(710 190)">
-    <line x1="-130" y1="0" x2="136" y2="0" stroke="#5f7b88" stroke-width="2" marker-end="url(#arrow-normal-1)" />
-    <line x1="0" y1="118" x2="0" y2="-125" stroke="#5f7b88" stroke-width="2" marker-end="url(#arrow-normal-1)" />
-    <text x="142" y="6" class="quant-svg-label">X</text>
-    <text x="8" y="-132" class="quant-svg-label">Y</text>
-    <text x="-116" y="116" class="quant-svg-note">rho tilts the ellipse</text>
+  <g transform="translate(800 220)">
+    <line x1="-152" y1="0" x2="164" y2="0" stroke="#5f7b88" stroke-width="2.4" marker-end="url(#arrow-normal-1)" />
+    <line x1="0" y1="140" x2="0" y2="-150" stroke="#5f7b88" stroke-width="2.4" marker-end="url(#arrow-normal-1)" />
+    <g transform="rotate(-28)">
+      <ellipse cx="0" cy="0" rx="146" ry="68" fill="url(#normal-ellipse)" stroke="#2c6b7f" stroke-width="3.5" />
+      <ellipse cx="0" cy="0" rx="86" ry="40" fill="none" stroke="#d7dfdd" stroke-width="2" />
+      <line x1="-118" y1="0" x2="118" y2="0" stroke="#e08d3c" stroke-width="5" stroke-linecap="round" />
+    </g>
+    <text x="170" y="8" class="quant-svg-label">X</text>
+    <text x="10" y="-152" class="quant-svg-label">Y</text>
+    <rect x="-128" y="122" width="256" height="38" rx="10" fill="#ffffff" stroke="#d6e2e5" />
+    <text x="-108" y="146" class="quant-svg-note">level sets become ellipses</text>
   </g>
 </svg>
-<figcaption>独立标准正态在 $(U,V)$ 平面里是圆对称的。Cholesky 线性变换把圆形等密度线拉成相关二维正态的椭圆。</figcaption>
+<figcaption>独立标准正态在 (U,V) 平面里是圆对称的。Cholesky 线性变换把圆形等密度线拉成相关二维正态的椭圆；橙色线是主方向示意，线性变换后的直线仍然是直线。</figcaption>
 </figure>
 
 ---
@@ -390,7 +399,7 @@ $$
     <text x="24" y="282" class="quant-svg-formula">alpha = arcsin(rho)</text>
   </g>
 </svg>
-<figcaption>在 $(U,V)$ 平面里，联合密度是圆对称的。$U>0$ 和 $Y>0$ 的交集是一个扇形，概率等于扇形角度除以 $2\pi$。</figcaption>
+<figcaption>在 (U,V) 平面里，联合密度是圆对称的。U &gt; 0 和 Y &gt; 0 的交集是一个扇形，概率等于扇形角度除以 2π。</figcaption>
 </figure>
 
 所以：
