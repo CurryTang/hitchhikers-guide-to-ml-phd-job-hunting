@@ -1960,6 +1960,12 @@ const systemDesignNoteDefinitions = [
     null,
     { directory: 'SystemDesign', category: 'Storage', difficulty: 'Medium' },
   ),
+  createTutorialDefinition(
+    'System Design 5 · 设计题基本流程',
+    'SystemDesign05 Interview Flow.md',
+    null,
+    { directory: 'SystemDesign', category: 'Framework', difficulty: 'Intro' },
+  ),
   // Keep the glossary as the final System Design note even when new chapters are inserted.
   createTutorialDefinition(
     'System Design 99 · 高频术语整合',

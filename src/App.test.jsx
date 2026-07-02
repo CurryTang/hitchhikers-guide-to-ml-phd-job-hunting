@@ -173,11 +173,12 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'System Design' }));
 
     expect(await screen.findByRole('heading', { name: /System Design 0/i })).toBeInTheDocument();
-    expect(screen.getByText('6 notes in this section')).toBeInTheDocument();
+    expect(screen.getByText('7 notes in this section')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /System Design 1 · 无状态设计范式/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /System Design 2 · 数据库基本范式/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /System Design 3 · 数据库扩展三件套/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /System Design 4 · 存储系统/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /System Design 5 · 设计题基本流程/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /System Design 99 · 高频术语整合/i })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /System Design 2 · 数据库基本范式/i }));
@@ -194,6 +195,11 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: /中文教程/ })).toBeInTheDocument();
     expect(screen.getAllByText('SystemDesign04 Storage Systems.md')).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole('button', { name: /System Design 5 · 设计题基本流程/i }));
+
+    expect(await screen.findByRole('heading', { name: /设计题基本流程/ })).toBeInTheDocument();
+    expect(screen.getAllByText('SystemDesign05 Interview Flow.md')).toHaveLength(2);
 
     fireEvent.click(screen.getByRole('button', { name: /System Design 99 · 高频术语整合/i }));
 
