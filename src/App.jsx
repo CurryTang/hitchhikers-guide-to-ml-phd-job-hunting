@@ -1954,6 +1954,12 @@ const systemDesignNoteDefinitions = [
     difficulty: 'Medium',
     content: systemDesignDbScalingContent,
   },
+  createTutorialDefinition(
+    'System Design 4 · 存储系统',
+    'SystemDesign04 Storage Systems.md',
+    null,
+    { directory: 'SystemDesign', category: 'Storage', difficulty: 'Medium' },
+  ),
 ];
 
 const systemDesignNotes = systemDesignNoteDefinitions.map((definition) => ({

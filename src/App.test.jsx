@@ -173,10 +173,11 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'System Design' }));
 
     expect(await screen.findByRole('heading', { name: /System Design 0/i })).toBeInTheDocument();
-    expect(screen.getByText('4 notes in this section')).toBeInTheDocument();
+    expect(screen.getByText('5 notes in this section')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /System Design 1 · 无状态设计范式/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /System Design 2 · 数据库基本范式/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /System Design 3 · 数据库扩展三件套/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /System Design 4 · 存储系统/i })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /System Design 2 · 数据库基本范式/i }));
 
@@ -187,6 +188,11 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: /Feature Store 分片的代价/ })).toBeInTheDocument();
     expect(screen.getByText(/Push \/ active update/)).toBeInTheDocument();
     expect(screen.getByText('Database Scaling Check 1')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /System Design 4 · 存储系统/i }));
+
+    expect(await screen.findByRole('heading', { name: /中文教程/ })).toBeInTheDocument();
+    expect(screen.getAllByText('SystemDesign04 Storage Systems.md')).toHaveLength(2);
   });
 
   it('shows local-only draft notes in development mode', async () => {
