@@ -1826,20 +1826,26 @@ const draftNotes = draftNoteDefinitions.map((definition) => ({
 
 const quantNoteDefinitions = [
   createTutorialDefinition(
-    'Quant 1 · Markov Chains: Expected Time',
-    'Quant01 Markov Chains Expected Time.md',
+    'Quant 1 · 期望与计数：Indicator / Multinomial Moment',
+    'Quant01 Expectation Counting Multinomial.md',
     null,
-    { directory: 'quant', category: 'Probability', difficulty: 'Medium' },
+    { directory: 'quant', category: 'Expectation', difficulty: 'Medium' },
   ),
   createTutorialDefinition(
-    'Quant 2 · Dice Rolls Product Expectation',
-    'Quant02 Dice Rolls Product Expectation.md',
+    'Quant 2 · Markov Chains：状态压缩与期望时间',
+    'Quant02 Markov Chains Expected Time.md',
     null,
-    { directory: 'quant', category: 'Probability', difficulty: 'Medium' },
+    { directory: 'quant', category: 'Markov', difficulty: 'Medium' },
   ),
   createTutorialDefinition(
-    'Quant 3 · 连续随机变量分布：从 CDF 写起',
-    'Quant03 Continuous Distribution CDF Transform.md',
+    'Quant 3 · 连续分布：CDF、几何区域与变量变换',
+    'Quant03 Continuous Distribution Geometry Transform.md',
+    null,
+    { directory: 'quant', category: 'Distribution', difficulty: 'Medium' },
+  ),
+  createTutorialDefinition(
+    'Quant 4 · 协方差、相关系数与相关矩阵 PSD',
+    'Quant04 Correlation Matrix PSD.md',
     null,
     { directory: 'quant', category: 'Probability', difficulty: 'Medium' },
   ),
